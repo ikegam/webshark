@@ -12,7 +12,7 @@ use flate2::{write::GzEncoder, Compression};
 use std::io::Write;
 use std::{
     collections::HashMap,
-    process::Stdio,
+    process::{Command, Stdio},
     sync::{Arc, Mutex},
 };
 use tokio::{
@@ -35,6 +35,19 @@ struct PacketInfo {
 }
 
 const PROTOCOLS: [&str; 6] = ["TCP", "UDP", "ICMP", "ARP", "IPv6", "IP"];
+
+fn get_local_ips() -> Vec<String> {
+    if let Ok(output) = Command::new("hostname").arg("-I").output() {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return stdout
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+        }
+    }
+    Vec::new()
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct PacketCompact {
@@ -319,7 +332,11 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
     let mut packet_buffer: Vec<PacketCompact> = Vec::new();
     let mut last_flush = std::time::Instant::now();
 
-    let ctx = serde_json::json!({"type": "ctx", "protocols": PROTOCOLS});
+    let ctx = serde_json::json!({
+        "type": "ctx",
+        "protocols": PROTOCOLS,
+        "local_ips": get_local_ips()
+    });
     if sender
         .send(Message::Text(ctx.to_string()))
         .await

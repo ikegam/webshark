@@ -595,6 +595,7 @@
         let isRunning = false;
         let packetCount = 0;
         let PROTOCOLS = [];
+        let LOCAL_IPS = [];
         // Simple grouping
         let smartGroups = {
             tcp_sessions: new Map(),
@@ -712,6 +713,7 @@
                     const msg = JSON.parse(event.data);
                     if (msg.type === 'ctx') {
                         PROTOCOLS = msg.protocols;
+                        LOCAL_IPS = msg.local_ips || [];
                         return;
                     }
                     packets = [msg];
@@ -780,9 +782,25 @@
         }
 
         function isLan(ip) {
-            return ip.startsWith('10.') ||
+            return LOCAL_IPS.includes(ip) ||
+                   ip.startsWith('10.') ||
                    ip.startsWith('192.168.') ||
                    (/^172\.(1[6-9]|2\d|3[01])\./.test(ip));
+        }
+
+        function getDisplayLabel(ip) {
+            return isLan(ip) ? `LAN_${ip}` : `WAN_${ip}`;
+        }
+
+        function getDisplayKey(packet) {
+            const portMatch = packet.info.match(/(\d+)\s*→\s*(\d+)/);
+            let src = getDisplayLabel(packet.src_ip);
+            let dst = getDisplayLabel(packet.dst_ip);
+            if (portMatch) {
+                src = `${src}:${portMatch[1]}`;
+                dst = `${dst}:${portMatch[2]}`;
+            }
+            return `${src} ⇄ ${dst}`;
         }
 
         // create session key and direction
@@ -850,24 +868,27 @@
         }
         
         function getFlowDisplayInfo(groupType, groupKey, packet) {
+            const title = (groupLanWanCheckbox && groupLanWanCheckbox.checked)
+                ? getDisplayKey(packet)
+                : groupKey;
             switch (groupType) {
                 case 'tcp_sessions':
-                    return { 
-                        icon: '🔐', 
-                        title: groupKey, 
-                        subtitle: `TCP Session` 
+                    return {
+                        icon: '🔐',
+                        title: title,
+                        subtitle: `TCP Session`
                     };
                 case 'udp_flows':
-                    return { 
-                        icon: '📦', 
-                        title: groupKey, 
-                        subtitle: `UDP Flow` 
+                    return {
+                        icon: '📦',
+                        title: title,
+                        subtitle: `UDP Flow`
                     };
                 default:
-                    return { 
-                        icon: '❓', 
-                        title: groupKey, 
-                        subtitle: `${packet.protocol}Protocol` 
+                    return {
+                        icon: '❓',
+                        title: title,
+                        subtitle: `${packet.protocol}Protocol`
                     };
             }
         }
@@ -977,7 +998,7 @@
             
             const timestamp = formatTimestamp(packet.timestamp);
             packetDiv.innerHTML = `
-                <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
+                <div><strong>${getDisplayLabel(packet.src_ip)} → ${getDisplayLabel(packet.dst_ip)}</strong></div>
                 <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
                 <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
             `;
@@ -1059,7 +1080,7 @@
                     
                     const timestamp = formatTimestamp(packet.timestamp);
                     packetDiv.innerHTML = `
-                        <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
+                        <div><strong>${getDisplayLabel(packet.src_ip)} → ${getDisplayLabel(packet.dst_ip)}</strong></div>
                         <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
                         <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
                     `;
@@ -1299,7 +1320,7 @@
             
             packetDiv.innerHTML = `
                 <div class="packet-info">
-                    <div class="packet-main">${packet.src_ip} → ${packet.dst_ip}</div>
+                    <div class="packet-main">${getDisplayLabel(packet.src_ip)} → ${getDisplayLabel(packet.dst_ip)}</div>
                     <div class="packet-detail">${timestamp} | ${packet.length} bytes | ${packet.info}</div>
                 </div>
                 <div class="packet-protocol">${packet.protocol}</div>

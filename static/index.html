@@ -448,6 +448,16 @@
                     <label for="maxPacketsPerSession">Max Packets per Session:</label>
                     <input type="number" id="maxPacketsPerSession" value="50" min="10" max="200" step="10">
                 </div>
+
+                <div class="control-group">
+                    <label for="netmask">Netmask:</label>
+                    <select id="netmask">
+                        <option value="32">/32</option>
+                        <option value="24">/24</option>
+                        <option value="16">/16</option>
+                        <option value="8">/8</option>
+                    </select>
+                </div>
             </div>
             
             <div class="control-row">
@@ -541,6 +551,7 @@
         const flowList = document.getElementById('flowList');
         const memoryStatusEl = document.getElementById('memoryStatus');
         const applyFilterBtn = document.getElementById('applyFilterBtn');
+        const netmaskSelect = document.getElementById('netmask');
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -621,30 +632,59 @@
         // 🚀 シンプルプロトコル分類
         function classifyPacket(packet) {
             const protocol = packet.protocol.toUpperCase();
-            
-            // シンプルなグルーピングに戻す
-            if (protocol === 'TCP') {
-                return { type: 'tcp_sessions', key: createSessionKey(packet) };
-            } else if (protocol === 'UDP') {
-                return { type: 'udp_flows', key: createSessionKey(packet) };
-            } else {
-                return { type: 'other_protocols', key: `${protocol}-${packet.src_ip}` };
-            }
+            const info = createSessionInfo(packet);
+
+            let type = 'other_protocols';
+            if (protocol === 'TCP') type = 'tcp_sessions';
+            else if (protocol === 'UDP') type = 'udp_flows';
+
+            return { type, key: info.key, direction: info.direction, a: info.a, b: info.b };
         }
-        
-        // シンプルなセッションキー作成
-        function createSessionKey(packet) {
-            // ポート情報を抽出
+
+        function applyNetmask(ip, prefix) {
+            const p = parseInt(prefix);
+            if (p >= 32) return ip;
+            const parts = ip.split('.');
+            if (parts.length !== 4) return ip;
+            const mask = [0,0,0,0];
+            let r = p;
+            for (let i=0;i<4;i++) {
+                if (r >= 8) { mask[i] = 255; r -= 8; }
+                else if (r > 0) { mask[i] = 256 - Math.pow(2, 8 - r); r = 0; }
+            }
+            const nums = parts.map(Number);
+            const result = nums.map((v,i)=>v & mask[i]);
+            return result.join('.') + '/' + p;
+        }
+
+        // セッションキーと向きを作成
+        function createSessionInfo(packet) {
             const portMatch = packet.info.match(/(\d+)\s*→\s*(\d+)/);
             let src = packet.src_ip;
             let dst = packet.dst_ip;
-            
             if (portMatch) {
-                src = `${packet.src_ip}:${portMatch[1]}`;
-                dst = `${packet.dst_ip}:${portMatch[2]}`;
+                src = `${src}:${portMatch[1]}`;
+                dst = `${dst}:${portMatch[2]}`;
             }
-            
-            return src < dst ? `${src} ⇄ ${dst}` : `${dst} ⇄ ${src}`;
+            const prefix = netmaskSelect ? parseInt(netmaskSelect.value) : 32;
+            const srcNet = applyNetmask(packet.src_ip, prefix);
+            const dstNet = applyNetmask(packet.dst_ip, prefix);
+            let a = srcNet;
+            let b = dstNet;
+            if (portMatch) {
+                a = applyNetmask(packet.src_ip, prefix) + `:${portMatch[1]}`;
+                b = applyNetmask(packet.dst_ip, prefix) + `:${portMatch[2]}`;
+            }
+            let direction = 'a_to_b';
+            if (a < b) {
+                direction = 'a_to_b';
+            } else if (a > b) {
+                direction = 'b_to_a';
+                const tmp = a; a = b; b = tmp;
+            } else {
+                direction = 'a_to_b';
+            }
+            return { key: `${a} ⇄ ${b}`, direction, a, b };
         }
 
         // ⚡ ULTRA高速フロー要素作成
@@ -664,6 +704,8 @@
                             <span class="session-stats">
                                 <span>開始: ${timestamp}</span>
                                 <span>パケット: <span id="${flowDiv.id}-count">1</span></span>
+                                <span>送信: <span id="${flowDiv.id}-sent">0B</span></span>
+                                <span>受信: <span id="${flowDiv.id}-recv">0B</span></span>
                                 <span>${subtitle}</span>
                             </span>
                         </div>
@@ -745,7 +787,7 @@
         // 🚀 ULTRAスマートパケット処理
         function addPacketToFlow(packet) {
             const classification = classifyPacket(packet);
-            const { type, key } = classification;
+            const { type, key, direction, a, b } = classification;
             
             let flowElement = smartGroups[type].get(key);
             
@@ -764,6 +806,12 @@
                     lastSeen: packet.timestamp,
                     packetsContainer: flowElement.querySelector('.session-packets'),
                     countElement: flowElement.querySelector(`#${flowElement.id}-count`),
+                    sentElement: flowElement.querySelector(`#${flowElement.id}-sent`),
+                    recvElement: flowElement.querySelector(`#${flowElement.id}-recv`),
+                    endpointA: a,
+                    endpointB: b,
+                    sentBytes: 0,
+                    recvBytes: 0,
                     isExpanded: false
                 };
                 
@@ -777,6 +825,13 @@
             metadata.packetCount++;
             metadata.lastSeen = packet.timestamp;
             metadata.countElement.textContent = metadata.packetCount;
+            if (direction === 'a_to_b') {
+                metadata.sentBytes += packet.length;
+                metadata.sentElement.textContent = formatBytes(metadata.sentBytes);
+            } else {
+                metadata.recvBytes += packet.length;
+                metadata.recvElement.textContent = formatBytes(metadata.recvBytes);
+            }
             
             if (metadata.isExpanded) {
                 addPacketToExpandedFlow(metadata, packet);
@@ -922,6 +977,12 @@
         function formatTimestamp(timestamp) {
             return new Date(timestamp * 1000).toLocaleTimeString();
         }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return `${bytes}B`;
+            if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+            return `${(bytes / (1024*1024)).toFixed(1)}MB`;
+        }
         
         function checkLimits() {
             // 定期的なチェックを行う
@@ -994,7 +1055,9 @@
                 
                 switch (sortOption) {
                     case 'traffic':
-                        return metaB.packetCount - metaA.packetCount;
+                        const bytesA = (metaA.sentBytes || 0) + (metaA.recvBytes || 0);
+                        const bytesB = (metaB.sentBytes || 0) + (metaB.recvBytes || 0);
+                        return bytesB - bytesA;
                     case 'alphabetical':
                         return a.key.localeCompare(b.key);
                     case 'recent':
@@ -1222,6 +1285,11 @@
         // ソート機能のイベントリスナー
         getCachedElement('sortSessions').addEventListener('change', function() {
             sortFlows(); // 即座ソート実行
+        });
+
+        // ネットマスク変更時はフローをリセット
+        netmaskSelect.addEventListener('change', function() {
+            clearBtn.click();
         });
 
         // フィルタ適用ボタンのイベントリスナー

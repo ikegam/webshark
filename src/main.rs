@@ -15,7 +15,7 @@ use std::{
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::Command as TokioCommand,
-    sync::broadcast,
+    sync::{broadcast, mpsc},
 };
 use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, services::ServeDir};
@@ -44,9 +44,14 @@ struct FilterConfig {
     tshark_filter: Option<String>,
 }
 
+enum CaptureCommand {
+    Restart,
+}
+
 type SharedStats = Arc<Mutex<PacketStats>>;
 type SharedFilter = Arc<Mutex<FilterConfig>>;
 type Broadcaster = broadcast::Sender<PacketInfo>;
+type CommandSender = mpsc::UnboundedSender<CaptureCommand>;
 
 #[tokio::main]
 async fn main() {
@@ -64,13 +69,14 @@ async fn main() {
     }));
 
     let (tx, _rx) = broadcast::channel(1000);
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
     // パケットキャプチャタスクを開始
     let stats_clone = stats.clone();
     let filter_clone = filter.clone();
     let tx_clone = tx.clone();
     tokio::spawn(async move {
-        capture_packets(stats_clone, filter_clone, tx_clone).await;
+        capture_packets_manager(stats_clone, filter_clone, tx_clone, cmd_rx).await;
     });
 
     // Webサーバーを設定
@@ -84,12 +90,35 @@ async fn main() {
             ServiceBuilder::new()
                 .layer(CorsLayer::permissive())
         )
-        .with_state((stats, filter, tx));
+        .with_state((stats, filter, tx, cmd_tx));
 
     info!("パケット可視化サーバーを起動中... http://localhost:3000");
     
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn capture_packets_manager(
+    stats: SharedStats, 
+    filter: SharedFilter, 
+    tx: Broadcaster, 
+    mut cmd_rx: mpsc::UnboundedReceiver<CaptureCommand>
+) {
+    info!("パケットキャプチャマネージャーを開始");
+    
+    loop {
+        let capture_task = tokio::spawn(capture_packets(stats.clone(), filter.clone(), tx.clone()));
+        
+        // 再起動コマンドを待機
+        if let Some(CaptureCommand::Restart) = cmd_rx.recv().await {
+            info!("パケットキャプチャを再起動中...");
+            capture_task.abort();
+            continue;
+        } else {
+            // コマンドチャンネルが閉じられた場合、終了
+            break;
+        }
+    }
 }
 
 async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcaster) {
@@ -188,24 +217,31 @@ async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
 }
 
-async fn stats_handler(State((stats, _, _)): State<(SharedStats, SharedFilter, Broadcaster)>) -> Json<PacketStats> {
+async fn stats_handler(State((stats, _, _, _)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>) -> Json<PacketStats> {
     let stats = stats.lock().unwrap();
     Json(stats.clone())
 }
 
 async fn set_filter_handler(
-    State((_, filter, _)): State<(SharedStats, SharedFilter, Broadcaster)>,
+    State((_, filter, _, cmd_tx)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>,
     Json(new_filter): Json<FilterConfig>,
 ) -> Result<Json<FilterConfig>, StatusCode> {
     let mut filter_guard = filter.lock().unwrap();
     *filter_guard = new_filter.clone();
     info!("フィルタが更新されました: {:?}", new_filter.tshark_filter);
+    
+    // パケットキャプチャを再起動
+    if let Err(_) = cmd_tx.send(CaptureCommand::Restart) {
+        error!("キャプチャ再起動コマンドの送信に失敗");
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    
     Ok(Json(new_filter))
 }
 
 async fn websocket_handler(
     ws: WebSocketUpgrade,
-    State((_, _, tx)): State<(SharedStats, SharedFilter, Broadcaster)>,
+    State((_, _, tx, _)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>,
 ) -> Response {
     ws.on_upgrade(move |socket| websocket_task(socket, tx))
 }

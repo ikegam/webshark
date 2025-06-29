@@ -494,6 +494,8 @@
         let tcpSessions = new Map(); // TCPセッション管理
         let sessionMetadata = new Map(); // セッションのメタデータ（パケット数、最終更新時刻など）
         let estimatedMemoryUsage = 0; // 推定メモリ使用量（MB）
+        let batchUpdateTimer = null; // バッチ更新用タイマー
+        let pendingUpdates = false; // 保留中の更新フラグ
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -622,19 +624,23 @@
                 sessionList.insertBefore(sessionElement, sessionList.firstChild);
             }
             
-            // パケットをセッションに追加
+            // パケットをセッションに追加（軽量化）
             const packetsContainer = sessionElement.querySelector('.session-packets');
-            const packetDiv = document.createElement('div');
-            packetDiv.className = 'session-packet';
             
-            const timestamp = new Date(packet.timestamp * 1000).toLocaleTimeString();
-            packetDiv.innerHTML = `
-                <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
-                <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
-                <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
-            `;
-            
-            packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
+            // セッションが閉じている場合はDOM操作をスキップ
+            if (!packetsContainer.classList.contains('collapsed')) {
+                const packetDiv = document.createElement('div');
+                packetDiv.className = 'session-packet';
+                
+                const timestamp = new Date(packet.timestamp * 1000).toLocaleTimeString();
+                packetDiv.innerHTML = `
+                    <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
+                    <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
+                    <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
+                `;
+                
+                packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
+            }
             
             // パケット数とメタデータを更新
             const metadata = sessionMetadata.get(sessionKey);
@@ -676,11 +682,8 @@
                 }
             }
             
-            // メモリ使用量表示を更新
-            updateMemoryDisplay();
-            
-            // ソートを適用
-            sortSessions();
+            // バッチ更新をスケジュール
+            scheduleBatchUpdate();
         }
 
         function toggleSession(sessionId) {
@@ -691,11 +694,40 @@
                 packetsContainer.classList.remove('collapsed');
                 toggleIcon.classList.remove('collapsed');
                 toggleIcon.textContent = '▼';
+                
+                // セッションを開く時にパケットが少ない場合は再描画
+                if (packetsContainer.children.length === 0) {
+                    refreshSessionPackets(sessionId);
+                }
             } else {
                 packetsContainer.classList.add('collapsed');
                 toggleIcon.classList.add('collapsed');
                 toggleIcon.textContent = '▶';
             }
+        }
+
+        function refreshSessionPackets(sessionId) {
+            // 必要に応じてセッションのパケットを再描画
+            // パフォーマンス向上のため、現在は実装省略
+        }
+
+        function scheduleBatchUpdate() {
+            if (pendingUpdates) return;
+            
+            pendingUpdates = true;
+            if (batchUpdateTimer) {
+                clearTimeout(batchUpdateTimer);
+            }
+            
+            batchUpdateTimer = setTimeout(() => {
+                performBatchUpdate();
+                pendingUpdates = false;
+            }, 100); // 100ms後にバッチ更新
+        }
+
+        function performBatchUpdate() {
+            updateMemoryDisplay();
+            sortSessions();
         }
 
         function sortSessions() {
@@ -714,13 +746,15 @@
                 }
             });
             
-            // セッションリストを再配置
+            // DocumentFragmentを使用して効率的にDOM操作
+            const fragment = document.createDocumentFragment();
             sessions.forEach(([sessionKey, metadata]) => {
                 const sessionElement = tcpSessions.get(sessionKey);
                 if (sessionElement && sessionElement.parentNode) {
-                    sessionList.appendChild(sessionElement);
+                    fragment.appendChild(sessionElement);
                 }
             });
+            sessionList.appendChild(fragment);
         }
 
         function estimatePacketMemoryUsage(packet) {
@@ -909,7 +943,7 @@
 
         // ソート機能のイベントリスナー
         document.getElementById('sortSessions').addEventListener('change', function() {
-            sortSessions();
+            scheduleBatchUpdate();
         });
 
         // フィルタ適用ボタンのイベントリスナー

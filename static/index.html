@@ -158,6 +158,36 @@
             display: flex;
             gap: 1rem;
             margin-bottom: 2rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .checkbox-container input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-container label {
+            cursor: pointer;
+            font-weight: 500;
+            color: #4a5568;
         }
 
         .btn {
@@ -206,6 +236,13 @@
             <button class="btn" id="startBtn">開始</button>
             <button class="btn danger" id="stopBtn">停止</button>
             <button class="btn" id="clearBtn">ログクリア</button>
+            
+            <div class="filter-controls">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="hideLocalhost" checked>
+                    <label for="hideLocalhost">localhost通信を非表示</label>
+                </div>
+            </div>
         </div>
 
         <div class="status">
@@ -313,7 +350,21 @@
             };
         }
 
+        function isLocalhostTraffic(packet) {
+            const localhostAddresses = ['127.0.0.1', '::1', 'localhost'];
+            return localhostAddresses.includes(packet.src_ip) || 
+                   localhostAddresses.includes(packet.dst_ip) ||
+                   (packet.src_ip === packet.dst_ip && 
+                    (packet.src_ip.startsWith('127.') || packet.src_ip.startsWith('::1')));
+        }
+
         function addPacketToLog(packet) {
+            // localhostフィルタリング機能
+            const hideLocalhost = document.getElementById('hideLocalhost').checked;
+            if (hideLocalhost && isLocalhostTraffic(packet)) {
+                return; // localhost通信は表示しない
+            }
+
             const packetDiv = document.createElement('div');
             packetDiv.className = 'packet-item';
             

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebShark - Network Packet Visualizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,19 +13,18 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: #333;
+            font-family: 'Inter', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a202c;
+            color: #e2e8f0;
             min-height: 100vh;
         }
 
         .header {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
+            background: #2d3748;
             padding: 1rem;
             text-align: center;
-            color: white;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            color: #edf2f7;
+            border-bottom: 1px solid #4a5568;
         }
 
         .container {
@@ -41,12 +41,11 @@
         }
 
         .card {
-            background: rgba(255, 255, 255, 0.95);
+            background: #2d3748;
             border-radius: 15px;
             padding: 1.5rem;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid #4a5568;
         }
 
         .card h3 {
@@ -79,14 +78,14 @@
             align-items: center;
             padding: 0.75rem;
             margin-bottom: 0.5rem;
-            background: #f7fafc;
+            background: #1f2937;
             border-radius: 8px;
             border-left: 4px solid #4299e1;
             animation: slideIn 0.3s ease-out;
         }
 
         .packet-item:nth-child(even) {
-            background: #edf2f7;
+            background: #27303f;
         }
 
         @keyframes slideIn {
@@ -108,12 +107,12 @@
 
         .packet-main {
             font-weight: 600;
-            color: #2d3748;
+            color: #edf2f7;
         }
 
         .packet-detail {
             font-size: 0.85rem;
-            color: #718096;
+            color: #a0aec0;
         }
 
         .packet-protocol {
@@ -516,6 +515,7 @@
         let ws = null;
         let isRunning = false;
         let packetCount = 0;
+        let PROTOCOLS = [];
         // シンプルグルーピング
         let smartGroups = {
             tcp_sessions: new Map(),
@@ -558,8 +558,15 @@
 
             ws.onmessage = async function(event) {
                 let packets = [];
-                
-                if (event.data instanceof Blob) {
+
+                if (typeof event.data === 'string') {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'ctx') {
+                        PROTOCOLS = msg.protocols;
+                        return;
+                    }
+                    packets = [msg];
+                } else if (event.data instanceof Blob) {
                     // Decompress data
                     try {
                         const arrayBuffer = await event.data.arrayBuffer();
@@ -569,13 +576,13 @@
                         console.error('Failed to decompress data:', e);
                         return;
                     }
-                } else {
-                    // Legacy JSON data (fallback)
-                    packets = [JSON.parse(event.data)];
                 }
                 
                 // Add batch packets to queue
                 packets.forEach(packet => {
+                    if (packet.proto !== undefined && PROTOCOLS.length) {
+                        packet.protocol = PROTOCOLS[packet.proto] || 'UNKNOWN';
+                    }
                     packetQueue.push(packet);
                     packetCount++;
                 });

@@ -7,6 +7,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use flate2::{write::GzEncoder, Compression};
 use std::io::Write;
 use std::{
@@ -31,6 +32,26 @@ struct PacketInfo {
     protocol: String,
     length: u32,
     info: String,
+}
+
+const PROTOCOLS: [&str; 6] = ["TCP", "UDP", "ICMP", "ARP", "IPv6", "IP"];
+
+#[derive(Debug, Clone, Serialize)]
+struct PacketCompact {
+    timestamp: u64,
+    src_ip: String,
+    dst_ip: String,
+    proto: u8,
+    length: u32,
+    info: String,
+}
+
+fn protocol_to_id(proto: &str) -> u8 {
+    PROTOCOLS
+        .iter()
+        .position(|p| p.eq_ignore_ascii_case(proto))
+        .map(|v| v as u8)
+        .unwrap_or(u8::MAX)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -272,22 +293,39 @@ async fn websocket_handler(
 async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = tx.subscribe();
-    let mut packet_buffer = Vec::new();
+    let mut packet_buffer: Vec<PacketCompact> = Vec::new();
     let mut last_flush = std::time::Instant::now();
+
+    let ctx = serde_json::json!({"type": "ctx", "protocols": PROTOCOLS});
+    if sender
+        .send(Message::Text(ctx.to_string()))
+        .await
+        .is_err()
+    {
+        return;
+    }
 
     // Packet reception task (batch + compression)
     let packet_task = tokio::spawn(async move {
         while let Ok(packet) = rx.recv().await {
-            packet_buffer.push(packet);
+            let compact = PacketCompact {
+                timestamp: packet.timestamp,
+                src_ip: packet.src_ip,
+                dst_ip: packet.dst_ip,
+                proto: protocol_to_id(&packet.protocol),
+                length: packet.length,
+                info: packet.info,
+            };
+            packet_buffer.push(compact);
             
             // Batch send every 100ms or 50 packets
             if packet_buffer.len() >= 50 || last_flush.elapsed() >= std::time::Duration::from_millis(100) {
                 if !packet_buffer.is_empty() {
-                    let batch_data = serde_json::to_string(&packet_buffer).unwrap();
-                    
+                    let batch_data = serde_json::to_vec(&packet_buffer).unwrap();
+
                     // gzip compression
                     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-                    encoder.write_all(batch_data.as_bytes()).unwrap();
+                    encoder.write_all(&batch_data).unwrap();
                     let compressed = encoder.finish().unwrap();
                     
                     if sender.send(Message::Binary(compressed)).await.is_err() {

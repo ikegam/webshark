@@ -390,6 +390,13 @@
             display: block;
         }
 
+        #vizView .viz-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            align-items: center;
+        }
+
         #timeChart {
             width: 100%;
             max-width: 800px;
@@ -428,9 +435,13 @@
             .dashboard {
                 grid-template-columns: 1fr;
             }
-            
+
             .container {
                 padding: 1rem;
+            }
+
+            #vizView .viz-container {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -567,7 +578,7 @@
     </div>
 
     <div id="vizView" class="view">
-        <div class="container">
+        <div class="container viz-container">
             <canvas id="timeChart" height="300"></canvas>
             <svg id="chordDiagram" width="600" height="600"></svg>
         </div>

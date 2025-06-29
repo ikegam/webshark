@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -361,7 +361,7 @@
             background: #c53030;
         }
 
-        /* ⚡ ULTRA高速ローディングスケルトン */
+        /* ⚡ ULTRAfast loading skeleton */
         .loading-skeleton {
             animation: skeleton-loading 1.5s infinite;
         }
@@ -526,20 +526,20 @@
         let isRunning = false;
         let packetCount = 0;
         let PROTOCOLS = [];
-        // シンプルグルーピング
+        // Simple grouping
         let smartGroups = {
             tcp_sessions: new Map(),
             udp_flows: new Map(),
             other_protocols: new Map()
         };
-        let groupMetadata = new Map(); // グループのメタデータ
-        let estimatedMemoryUsage = 0; // 推定メモリ使用量（MB）
-        let batchUpdateTimer = null; // バッチ更新用タイマー
-        let pendingUpdates = false; // 保留中の更新フラグ
-        let packetQueue = []; // パケット処理キュー
-        let isProcessingQueue = false; // キュー処理中フラグ
-        let cachedElements = new Map(); // DOM要素キャッシュ
-        let shouldSort = false; // ソートが必要かどうか
+        let groupMetadata = new Map(); // group metadata
+        let estimatedMemoryUsage = 0; // estimated memory usage (MB)
+        let batchUpdateTimer = null; // batch update timer
+        let pendingUpdates = false; // pending update flag
+        let packetQueue = []; // packet processing queue
+        let isProcessingQueue = false; // queue processing flag
+        let cachedElements = new Map(); // DOM element cache
+        let shouldSort = false; // whether sorting is needed
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -560,9 +560,9 @@
             ws = new WebSocket(wsUrl);
 
             ws.onopen = function() {
-                console.log('WebSocket接続が確立されました');
-                connectionStatusEl.textContent = '接続中';
-                statusText.textContent = 'パケット監視中...';
+                console.log('WebSocket connection established');
+                connectionStatusEl.textContent = 'Connected';
+                statusText.textContent = 'Capturing packets...';
                 statusDot.style.background = '#48bb78';
                 isRunning = true;
             };
@@ -607,16 +607,16 @@
             };
 
             ws.onclose = function() {
-                console.log('WebSocket接続が終了しました');
-                connectionStatusEl.textContent = '切断中';
-                statusText.textContent = '待機中...';
+                console.log('WebSocket connection closed');
+                connectionStatusEl.textContent = 'Disconnected';
+                statusText.textContent = 'Waiting...';
                 statusDot.style.background = '#e53e3e';
                 isRunning = false;
             };
 
             ws.onerror = function(error) {
-                console.error('WebSocketエラー:', error);
-                connectionStatusEl.textContent = 'エラー';
+                console.error('WebSocket error:', error);
+                connectionStatusEl.textContent = 'Error';
                 statusDot.style.background = '#ed8936';
             };
         }
@@ -629,7 +629,7 @@
                     (packet.src_ip.startsWith('127.') || packet.src_ip.startsWith('::1')));
         }
 
-        // 🚀 シンプルプロトコル分類
+        // 🚀 Simple protocol classification
         function classifyPacket(packet) {
             const protocol = packet.protocol.toUpperCase();
             const info = createSessionInfo(packet);
@@ -657,7 +657,7 @@
             return result.join('.') + '/' + p;
         }
 
-        // セッションキーと向きを作成
+        // create session key and direction
         function createSessionInfo(packet) {
             const portMatch = packet.info.match(/(\d+)\s*→\s*(\d+)/);
             let src = packet.src_ip;
@@ -687,10 +687,10 @@
             return { key: `${a} ⇄ ${b}`, direction, a, b };
         }
 
-        // ⚡ ULTRA高速フロー要素作成
+        // ⚡ ULTRA fast flow element creation
         function createFlowElement(groupType, groupKey, firstPacket) {
             const flowDiv = document.createElement('div');
-            flowDiv.className = 'tcp-session'; // CSSは再利用
+            flowDiv.className = 'tcp-session'; // reuse CSS
             flowDiv.id = `flow-${groupType}-${groupKey.replace(/[^a-zA-Z0-9]/g, '-')}`;
             
             const { icon, title, subtitle } = getFlowDisplayInfo(groupType, groupKey, firstPacket);
@@ -702,10 +702,10 @@
                         <div class="session-title">${icon} ${title}</div>
                         <div class="session-subtitle">
                             <span class="session-stats">
-                                <span>開始: ${timestamp}</span>
-                                <span>パケット: <span id="${flowDiv.id}-count">1</span></span>
-                                <span>送信: <span id="${flowDiv.id}-sent">0B</span></span>
-                                <span>受信: <span id="${flowDiv.id}-recv">0B</span></span>
+                                <span>Started: ${timestamp}</span>
+                                <span>Packets: <span id="${flowDiv.id}-count">1</span></span>
+                                <span>Sent: <span id="${flowDiv.id}-sent">0B</span></span>
+                                <span>Received: <span id="${flowDiv.id}-recv">0B</span></span>
                                 <span>${subtitle}</span>
                             </span>
                         </div>
@@ -730,19 +730,19 @@
                     return { 
                         icon: '🔐', 
                         title: groupKey, 
-                        subtitle: `TCPセッション` 
+                        subtitle: `TCP Session` 
                     };
                 case 'udp_flows':
                     return { 
                         icon: '📦', 
                         title: groupKey, 
-                        subtitle: `UDP通信` 
+                        subtitle: `UDP Flow` 
                     };
                 default:
                     return { 
                         icon: '❓', 
                         title: groupKey, 
-                        subtitle: `${packet.protocol}プロトコル` 
+                        subtitle: `${packet.protocol}Protocol` 
                     };
             }
         }
@@ -755,7 +755,7 @@
             
             isProcessingQueue = true;
             const startTime = performance.now();
-            const maxProcessingTime = 8; // 8msまで処理
+            const maxProcessingTime = 8; // process up to 8ms
             
             while (packetQueue.length > 0 && (performance.now() - startTime) < maxProcessingTime) {
                 const packet = packetQueue.shift();
@@ -763,28 +763,28 @@
             }
             
             if (packetQueue.length > 0) {
-                // まだパケットが残っている場合は次のフレームで続きを処理
+                // if packets remain continue next frame
                 requestAnimationFrame(processPacketQueue);
             } else {
                 isProcessingQueue = false;
-                // ソートが必要な場合はここで実行
+                // perform sort here if needed
                 if (shouldSort) {
                     shouldSort = false;
-                    sortFlows(); // 正しい関数名に修正
+                    sortFlows(); // call correct function
                 }
             }
         }
 
         function processPacket(packet) {
-            // localhostフィルタリング機能
+            // localhost filtering
             const hideLocalhost = getCachedElement('hideLocalhost').checked;
             if (hideLocalhost && isLocalhostTraffic(packet)) {
-                return; // localhost通信は表示しない
+                return; // skip localhost traffic
             }
-            addPacketToFlow(packet); // 新しいスマートフロー処理
+            addPacketToFlow(packet); // new smart flow handling
         }
 
-        // 🚀 ULTRAスマートパケット処理
+        // 🚀 ULTRA smart packet processing
         function addPacketToFlow(packet) {
             const classification = classifyPacket(packet);
             const { type, key, direction, a, b } = classification;
@@ -792,11 +792,11 @@
             let flowElement = smartGroups[type].get(key);
             
             if (!flowElement) {
-                // 新しいフローを作成
+                // create new flow
                 flowElement = createFlowElement(type, key, packet);
                 smartGroups[type].set(key, flowElement);
                 
-                // メタデータを初期化
+                // initialize metadata
                 const metadata = {
                     type: type,
                     key: key,
@@ -858,28 +858,28 @@
             
             packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
             
-            // パケット数制限
+            // packet limit
             const maxPacketsPerSession = parseInt(getCachedElement('maxPacketsPerSession').value) || 50;
             while (packetsContainer.children.length > maxPacketsPerSession + 1) { // +1 for skeleton
                 packetsContainer.removeChild(packetsContainer.lastChild);
             }
         }
 
-        // ⚡ ULTRA高速フロートグル (0.1秒以内表示)
+        // ⚡ ULTRA fast flow toggle (display within 0.1s)
         function toggleFlowUltraFast(flowId) {
             const packetsContainer = document.getElementById(`${flowId}-packets`);
             const toggleIcon = document.getElementById(`${flowId}-toggle`);
             const skeleton = packetsContainer.querySelector('.loading-skeleton');
             
             if (packetsContainer.classList.contains('collapsed')) {
-                // ✨ 即座スケルトン表示 (0.01秒)
+                // ✨ instant skeleton display (0.01s)
                 packetsContainer.classList.remove('collapsed');
                 toggleIcon.classList.remove('collapsed');
                 toggleIcon.textContent = '▼';
                 
                 if (skeleton) skeleton.style.display = 'block';
                 
-                // メタデータを取得
+                // get metadata
                 const metadataKey = flowId.replace('flow-', '').replace(/-/g, '-', 1);
                 const metadata = Array.from(groupMetadata.values()).find(m => 
                     flowId.includes(m.type) && flowId.includes(m.key.replace(/[^a-zA-Z0-9]/g, '-'))
@@ -887,7 +887,7 @@
                 
                 if (metadata) {
                     metadata.isExpanded = true;
-                    // 非同期でパケットをロード
+                    // load packets asynchronously
                     requestIdleCallback(() => loadPacketsChunked(metadata));
                 }
                 
@@ -896,7 +896,7 @@
                 toggleIcon.classList.add('collapsed');
                 toggleIcon.textContent = '▶';
                 
-                // メタデータを更新
+                // update metadata
                 const metadataKey = flowId.replace('flow-', '').replace(/-/g, '-', 1);
                 const metadata = Array.from(groupMetadata.values()).find(m => 
                     flowId.includes(m.type) && flowId.includes(m.key.replace(/[^a-zA-Z0-9]/g, '-'))
@@ -908,7 +908,7 @@
             }
         }
         
-        // 🚀 チャンク化超高速ローディング
+        // 🚀 chunked ultra-fast loading
         function loadPacketsChunked(metadata) {
             const packetsContainer = metadata.packetsContainer;
             const skeleton = packetsContainer.querySelector('.loading-skeleton');
@@ -919,7 +919,7 @@
                 return;
             }
             
-            const chunkSize = 20; // 20件ずつロード
+            const chunkSize = 20; // load 20 items at a time
             let currentIndex = 0;
             
             function loadChunk() {
@@ -927,7 +927,7 @@
                 const fragment = document.createDocumentFragment();
                 
                 for (let i = currentIndex; i < endIndex; i++) {
-                    const packet = packets[packets.length - 1 - i]; // 新しい順
+                    const packet = packets[packets.length - 1 - i]; // newest first
                     const packetDiv = document.createElement('div');
                     packetDiv.className = 'session-packet';
                     
@@ -950,21 +950,21 @@
                 currentIndex = endIndex;
                 
                 if (currentIndex < packets.length && metadata.isExpanded) {
-                    // 次のチャンクを非同期でロード
+                    // load next chunk asynchronously
                     requestAnimationFrame(loadChunk);
                 } else {
-                    // ローディング完了
+                    // loading complete
                     if (skeleton) skeleton.style.display = 'none';
                 }
             }
             
-            // 最初のチャンクを即座ロード
+            // load first chunk immediately
             loadChunk();
         }
 
         function refreshSessionPackets(sessionId) {
-            // 必要に応じてセッションのパケットを再描画
-            // パフォーマンス向上のため、現在は実装省略
+            // if necessaryredraw session packets
+            // omitted for performance reasons
         }
 
         function getCachedElement(id) {
@@ -985,8 +985,8 @@
         }
         
         function checkLimits() {
-            // 定期的なチェックを行う
-            if (Math.random() < 0.01) { // 1%の確率でチェック
+            // perform periodic check
+            if (Math.random() < 0.01) { // check with 1% probability
                 const maxSessions = parseInt(getCachedElement('maxSessions').value) || 20;
                 const memoryLimit = parseInt(getCachedElement('memoryLimit').value) || 50;
                 
@@ -1024,7 +1024,7 @@
             batchUpdateTimer = setTimeout(() => {
                 performBatchUpdate();
                 pendingUpdates = false;
-            }, 500); // 500msに延長
+            }, 500); // extended to 500ms
         }
         
         function performBatchUpdate() {
@@ -1039,7 +1039,7 @@
             const sortOption = getCachedElement('sortSessions').value;
             const allFlows = [];
             
-            // 全てのグループからフローを収集
+            // collect flows from all groups
             Object.keys(smartGroups).forEach(groupType => {
                 const group = smartGroups[groupType];
                 for (const [key, element] of group.entries()) {
@@ -1076,16 +1076,16 @@
         }
 
         function estimatePacketMemoryUsage(packet) {
-            // パケット1個あたりの概算メモリ使用量（MB）
-            const baseSize = 0.001; // 1KB程度
-            const infoSize = packet.info.length * 0.000001; // 文字数に応じて
+            // approx memory usage per packet (MB)
+            const baseSize = 0.001; // around 1KB
+            const infoSize = packet.info.length * 0.000001; // dependent on text length
             return baseSize + infoSize;
         }
 
         function updateMemoryDisplay() {
-            memoryStatusEl.textContent = `メモリ: ${estimatedMemoryUsage.toFixed(1)}MB`;
+            memoryStatusEl.textContent = `Memory: ${estimatedMemoryUsage.toFixed(1)}MB`;
             
-            // メモリ使用量が制限に近づいたら警告色
+            // warn when memory usage near limit
             const memoryLimit = parseInt(document.getElementById('memoryLimit').value) || 50;
             if (estimatedMemoryUsage > memoryLimit * 0.8) {
                 memoryStatusEl.style.color = '#e53e3e';
@@ -1104,7 +1104,7 @@
             const flowElement = smartGroups[type].get(key);
             
             if (flowElement && flowElement.parentNode) {
-                // メモリ使用量を概算で削除
+                // approximate memory usage decrease
                 estimatedMemoryUsage -= metadata.packetCount * 0.001;
                 
                 smartGroups[type].delete(key);
@@ -1114,9 +1114,9 @@
         }
 
         function cleanupOldFlows() {
-            // 古いフローから削除
+            // remove oldest flows
             const flows = Array.from(groupMetadata.entries())
-                .sort(([,a], [,b]) => a.lastSeen - b.lastSeen); // 古い順
+                .sort(([,a], [,b]) => a.lastSeen - b.lastSeen); // oldest first
             
             const memoryLimit = parseInt(getCachedElement('memoryLimit').value) || 50;
             
@@ -1141,8 +1141,8 @@
                 });
                 
                 if (response.ok) {
-                    console.log('フィルタが適用されました:', filterValue);
-                    // フローリストをクリア（新しいフィルタで再開）
+                    console.log('Filter applied:', filterValue);
+                    // Clearing flows and restarting with new filter
                     flowList.innerHTML = '';
                     Object.keys(smartGroups).forEach(groupType => {
                         smartGroups[groupType].clear();
@@ -1152,18 +1152,18 @@
                     estimatedMemoryUsage = 0;
                     updateMemoryDisplay();
                 } else {
-                    console.error('フィルタの適用に失敗しました');
+                    console.error('Failed to apply filter');
                 }
             } catch (error) {
-                console.error('フィルタ適用エラー:', error);
+                console.error('Filter error:', error);
             }
         }
 
         function addPacketToLog(packet) {
-            // localhostフィルタリング機能
+            // localhost filtering
             const hideLocalhost = document.getElementById('hideLocalhost').checked;
             if (hideLocalhost && isLocalhostTraffic(packet)) {
-                return; // localhost通信は表示しない
+                return; // skip localhost traffic
             }
 
             const packetDiv = document.createElement('div');
@@ -1181,7 +1181,7 @@
 
             packetList.insertBefore(packetDiv, packetList.firstChild);
 
-            // 最大100個のパケットログを保持
+            // keep up to 100 packet logs
             while (packetList.children.length > 100) {
                 packetList.removeChild(packetList.lastChild);
             }
@@ -1192,33 +1192,33 @@
                 const response = await fetch('/api/stats');
                 const stats = await response.json();
                 
-                console.log('統計情報を取得:', stats);
+                console.log('Fetched statistics:', stats);
                 
                 updateProtocolStats(stats.protocols);
                 updateTopStats('sourceStats', stats.top_sources);
                 updateTopStats('destStats', stats.top_destinations);
             } catch (error) {
-                console.error('統計情報の取得に失敗:', error);
+                console.error('Failed to fetch statistics:', error);
             }
         }
 
         function updateProtocolStats(protocols) {
             const container = getCachedElement('protocolStats');
             if (!container) {
-                console.error('protocolStats要素が見つかりません');
+                console.error('protocolStats element not found');
                 return;
             }
             
             container.innerHTML = '';
             
-            console.log('プロトコル統計更新:', protocols);
+            console.log('Protocol stats updated:', protocols);
             
             const sorted = Object.entries(protocols)
                 .sort(([,a], [,b]) => b - a)
                 .slice(0, 5);
             
             if (sorted.length === 0) {
-                container.innerHTML = '<div class="stat-item"><span>データなし</span><span>-</span></div>';
+                container.innerHTML = '<div class="stat-item"><span>No data</span><span>-</span></div>';
                 return;
             }
             
@@ -1233,7 +1233,7 @@
         function updateTopStats(containerId, data) {
             const container = getCachedElement(containerId);
             if (!container) {
-                console.error(`${containerId}要素が見つかりません`);
+                console.error(`${containerId} element not found`);
                 return;
             }
             
@@ -1244,7 +1244,7 @@
                 .slice(0, 5);
             
             if (sorted.length === 0) {
-                container.innerHTML = '<div class="stat-item"><span>データなし</span><span>-</span></div>';
+                container.innerHTML = '<div class="stat-item"><span>No data</span><span>-</span></div>';
                 return;
             }
             
@@ -1270,48 +1270,48 @@
 
         clearBtn.addEventListener('click', function() {
             flowList.innerHTML = '';
-            // 全てのスマートグループをクリア
+            // clear all smart groups
             Object.keys(smartGroups).forEach(groupType => {
                 smartGroups[groupType].clear();
             });
             groupMetadata.clear();
-            packetQueue.length = 0; // キューもクリア
+            packetQueue.length = 0; // clear queue too
             packetCount = 0;
             estimatedMemoryUsage = 0;
             totalPacketsEl.textContent = '0';
             updateMemoryDisplay();
         });
 
-        // ソート機能のイベントリスナー
+        // sort feature event listener
         getCachedElement('sortSessions').addEventListener('change', function() {
-            sortFlows(); // 即座ソート実行
+            sortFlows(); // sort immediately
         });
 
-        // ネットマスク変更時はフローをリセット
+        // reset flows when netmask changes
         netmaskSelect.addEventListener('change', function() {
             clearBtn.click();
         });
 
-        // フィルタ適用ボタンのイベントリスナー
+        // filter apply button listener
         applyFilterBtn.addEventListener('click', applyTsharkFilter);
 
-        // Enterキーでフィルタ適用
+        // apply filter on Enter key
         document.getElementById('tsharkFilter').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 applyTsharkFilter();
             }
         });
 
-        // 統計情報を定期的に更新
-        setInterval(updateStats, 5000); // 5秒に戻す
+        // update statistics periodically
+        setInterval(updateStats, 5000); // back to 5 seconds
         
-        // メモリ表示更新の定期実行
+        // regular memory display update
         setInterval(updateMemoryDisplay, 2000);
         
-        // 初回統計情報を取得
+        // fetch initial statistics
         updateStats();
 
-        // 初期接続
+        // initial connection
         connectWebSocket();
     </script>
 </body>

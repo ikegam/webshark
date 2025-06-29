@@ -218,8 +218,8 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     }
 
     let timestamp = parts[0].parse::<f64>().ok()? as u64;
-    let src_ip = if parts[1].is_empty() { "N/A".to_string() } else { parts[1].to_string() };
-    let dst_ip = if parts[2].is_empty() { "N/A".to_string() } else { parts[2].to_string() };
+    let src_ip = if parts[1].is_empty() { "Unknown".to_string() } else { parts[1].to_string() };
+    let dst_ip = if parts[2].is_empty() { "Unknown".to_string() } else { parts[2].to_string() };
     let protocol = if parts[3].is_empty() { 
         "Unknown".to_string() 
     } else { 
@@ -245,7 +245,7 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         }
     };
     let length = parts[4].parse::<u32>().unwrap_or(0);
-    let info = if parts[5].is_empty() { "N/A".to_string() } else { parts[5].to_string() };
+    let info = if parts[5].is_empty() { "Unknown".to_string() } else { parts[5].to_string() };
 
     Some(PacketInfo {
         timestamp,

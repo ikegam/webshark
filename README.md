@@ -143,7 +143,7 @@ cargo watch -x run
 
 ## License
 
-MIT License
+BSD 4-Clause License
 
 ## Contributing
 

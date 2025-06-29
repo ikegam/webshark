@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>パケット可視化ツール</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            text-align: center;
+            color: white;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .card h3 {
+            color: #4a5568;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .stat-item:last-child {
+            border-bottom: none;
+        }
+
+        .packet-log {
+            grid-column: 1 / -1;
+            max-height: 400px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+        }
+
+        .packet-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: #f7fafc;
+            border-radius: 8px;
+            border-left: 4px solid #4299e1;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .packet-item:nth-child(even) {
+            background: #edf2f7;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .packet-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .packet-main {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .packet-detail {
+            font-size: 0.85rem;
+            color: #718096;
+        }
+
+        .packet-protocol {
+            background: #4299e1;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #48bb78;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(72, 187, 120, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(72, 187, 120, 0);
+            }
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            background: #4299e1;
+            color: white;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #3182ce;
+            transform: translateY(-2px);
+        }
+
+        .btn.danger {
+            background: #e53e3e;
+        }
+
+        .btn.danger:hover {
+            background: #c53030;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🌐 パケット可視化ツール</h1>
+        <p>リアルタイムネットワークトラフィック監視</p>
+    </div>
+
+    <div class="container">
+        <div class="controls">
+            <button class="btn" id="startBtn">開始</button>
+            <button class="btn danger" id="stopBtn">停止</button>
+            <button class="btn" id="clearBtn">ログクリア</button>
+        </div>
+
+        <div class="status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">待機中...</span>
+        </div>
+
+        <div class="dashboard">
+            <div class="card">
+                <h3>📊 統計情報</h3>
+                <div class="stat-item">
+                    <span>総パケット数:</span>
+                    <span id="totalPackets">0</span>
+                </div>
+                <div class="stat-item">
+                    <span>接続状態:</span>
+                    <span id="connectionStatus">切断中</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🔗 プロトコル別</h3>
+                <div id="protocolStats">
+                    <div class="stat-item">
+                        <span>データなし</span>
+                        <span>-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📍 送信元TOP5</h3>
+                <div id="sourceStats">
+                    <div class="stat-item">
+                        <span>データなし</span>
+                        <span>-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>🎯 宛先TOP5</h3>
+                <div id="destStats">
+                    <div class="stat-item">
+                        <span>データなし</span>
+                        <span>-</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card packet-log">
+            <h3>📦 リアルタイムパケットログ</h3>
+            <div id="packetList"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isRunning = false;
+        let packetCount = 0;
+
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const totalPacketsEl = document.getElementById('totalPackets');
+        const connectionStatusEl = document.getElementById('connectionStatus');
+        const packetList = document.getElementById('packetList');
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = function() {
+                console.log('WebSocket接続が確立されました');
+                connectionStatusEl.textContent = '接続中';
+                statusText.textContent = 'パケット監視中...';
+                statusDot.style.background = '#48bb78';
+                isRunning = true;
+            };
+
+            ws.onmessage = function(event) {
+                const packet = JSON.parse(event.data);
+                addPacketToLog(packet);
+                packetCount++;
+                totalPacketsEl.textContent = packetCount.toLocaleString();
+            };
+
+            ws.onclose = function() {
+                console.log('WebSocket接続が終了しました');
+                connectionStatusEl.textContent = '切断中';
+                statusText.textContent = '待機中...';
+                statusDot.style.background = '#e53e3e';
+                isRunning = false;
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocketエラー:', error);
+                connectionStatusEl.textContent = 'エラー';
+                statusDot.style.background = '#ed8936';
+            };
+        }
+
+        function addPacketToLog(packet) {
+            const packetDiv = document.createElement('div');
+            packetDiv.className = 'packet-item';
+            
+            const timestamp = new Date(packet.timestamp * 1000).toLocaleTimeString();
+            
+            packetDiv.innerHTML = `
+                <div class="packet-info">
+                    <div class="packet-main">${packet.src_ip} → ${packet.dst_ip}</div>
+                    <div class="packet-detail">${timestamp} | ${packet.length} bytes | ${packet.info}</div>
+                </div>
+                <div class="packet-protocol">${packet.protocol}</div>
+            `;
+
+            packetList.insertBefore(packetDiv, packetList.firstChild);
+
+            // 最大100個のパケットログを保持
+            while (packetList.children.length > 100) {
+                packetList.removeChild(packetList.lastChild);
+            }
+        }
+
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                
+                updateProtocolStats(stats.protocols);
+                updateTopStats('sourceStats', stats.top_sources);
+                updateTopStats('destStats', stats.top_destinations);
+            } catch (error) {
+                console.error('統計情報の取得に失敗:', error);
+            }
+        }
+
+        function updateProtocolStats(protocols) {
+            const container = document.getElementById('protocolStats');
+            container.innerHTML = '';
+            
+            const sorted = Object.entries(protocols)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 5);
+            
+            if (sorted.length === 0) {
+                container.innerHTML = '<div class="stat-item"><span>データなし</span><span>-</span></div>';
+                return;
+            }
+            
+            sorted.forEach(([protocol, count]) => {
+                const item = document.createElement('div');
+                item.className = 'stat-item';
+                item.innerHTML = `<span>${protocol}</span><span>${count}</span>`;
+                container.appendChild(item);
+            });
+        }
+
+        function updateTopStats(containerId, data) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            const sorted = Object.entries(data)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 5);
+            
+            if (sorted.length === 0) {
+                container.innerHTML = '<div class="stat-item"><span>データなし</span><span>-</span></div>';
+                return;
+            }
+            
+            sorted.forEach(([ip, count]) => {
+                const item = document.createElement('div');
+                item.className = 'stat-item';
+                item.innerHTML = `<span>${ip}</span><span>${count}</span>`;
+                container.appendChild(item);
+            });
+        }
+
+        startBtn.addEventListener('click', function() {
+            if (!isRunning) {
+                connectWebSocket();
+            }
+        });
+
+        stopBtn.addEventListener('click', function() {
+            if (ws && isRunning) {
+                ws.close();
+            }
+        });
+
+        clearBtn.addEventListener('click', function() {
+            packetList.innerHTML = '';
+            packetCount = 0;
+            totalPacketsEl.textContent = '0';
+        });
+
+        // 統計情報を5秒ごとに更新
+        setInterval(updateStats, 5000);
+
+        // 初期接続
+        connectWebSocket();
+    </script>
+</body>
+</html>

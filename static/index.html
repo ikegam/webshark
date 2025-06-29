@@ -403,6 +403,12 @@
             margin: 0 auto 2rem;
         }
 
+        #totalTrafficChart {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto 2rem;
+        }
+
         #chordDiagram {
             display: block;
             margin: 0 auto;
@@ -581,6 +587,7 @@
         <div class="container viz-container">
             <svg id="chordDiagram" width="600" height="600"></svg>
             <canvas id="timeChart" height="300"></canvas>
+            <canvas id="totalTrafficChart" height="300"></canvas>
         </div>
     </div>
 
@@ -635,6 +642,27 @@
         });
 
         const trafficSeries = new Map();
+        let totalTraffic = 0;
+
+        const totalCtx = document.getElementById('totalTrafficChart').getContext('2d');
+        const totalChart = new Chart(totalCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Total Bytes',
+                    data: [],
+                    borderColor: '#68d391',
+                    backgroundColor: 'rgba(104,211,145,0.3)',
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                animation: false,
+                scales: { x: { display: true }, y: { beginAtZero: true } }
+            }
+        });
 
         // D3 chord diagram data
         const chordSvg = d3.select('#chordDiagram');
@@ -1376,6 +1404,7 @@
             // update time series
             const sec = Math.floor(packet.timestamp);
             trafficSeries.set(sec, (trafficSeries.get(sec) || 0) + packet.length);
+            totalTraffic += packet.length;
 
             updateChordTraffic(packet.src_ip, packet.dst_ip, packet.length);
         }
@@ -1393,6 +1422,22 @@
             timeChart.data.labels = labels;
             timeChart.data.datasets[0].data = data;
             timeChart.update('none');
+        }
+
+        function refreshTotalTrafficChart() {
+            const now = Math.floor(Date.now() / 1000);
+            const windowSize = 60;
+            const labels = [];
+            const data = [];
+            let runningTotal = totalTraffic;
+            for (let i = now; i > now - windowSize; i--) {
+                labels.unshift(new Date(i * 1000).toLocaleTimeString());
+                data.unshift(runningTotal);
+                runningTotal -= trafficSeries.get(i) || 0;
+            }
+            totalChart.data.labels = labels;
+            totalChart.data.datasets[0].data = data;
+            totalChart.update('none');
         }
 
         function updateChordTraffic(src, dst, bytes) {
@@ -1443,6 +1488,7 @@
 
             groups.append('text')
                 .attr('dy', -3)
+                .attr('fill', '#fff')
                 .attr('transform', d => {
                     const angle = (d.startAngle + d.endAngle) / 2;
                     const rotate = angle * 180 / Math.PI - 90;
@@ -1468,6 +1514,7 @@
 
         setInterval(() => {
             refreshTimeChart();
+            refreshTotalTrafficChart();
             drawChordDiagram();
         }, 1000);
 

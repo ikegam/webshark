@@ -513,13 +513,8 @@
                 </div>
 
                 <div class="control-group">
-                    <label for="netmask">Netmask:</label>
-                    <select id="netmask">
-                        <option value="32">/32</option>
-                        <option value="24">/24</option>
-                        <option value="16">/16</option>
-                        <option value="8">/8</option>
-                    </select>
+                    <input type="checkbox" id="groupLanWan" checked>
+                    <label for="groupLanWan">Group by LAN/WAN</label>
                 </div>
             </div>
             
@@ -680,7 +675,7 @@
         const flowList = document.getElementById('flowList');
         const memoryStatusEl = document.getElementById('memoryStatus');
         const applyFilterBtn = document.getElementById('applyFilterBtn');
-        const netmaskSelect = document.getElementById('netmask');
+        const groupLanWanCheckbox = document.getElementById('groupLanWan');
 
         topTab.addEventListener('click', () => {
             topTab.classList.add('active');
@@ -784,20 +779,10 @@
             return { type, key: info.key, direction: info.direction, a: info.a, b: info.b };
         }
 
-        function applyNetmask(ip, prefix) {
-            const p = parseInt(prefix);
-            if (p >= 32) return ip;
-            const parts = ip.split('.');
-            if (parts.length !== 4) return ip;
-            const mask = [0,0,0,0];
-            let r = p;
-            for (let i=0;i<4;i++) {
-                if (r >= 8) { mask[i] = 255; r -= 8; }
-                else if (r > 0) { mask[i] = 256 - Math.pow(2, 8 - r); r = 0; }
-            }
-            const nums = parts.map(Number);
-            const result = nums.map((v,i)=>v & mask[i]);
-            return result.join('.') + '/' + p;
+        function isLan(ip) {
+            return ip.startsWith('10.') ||
+                   ip.startsWith('192.168.') ||
+                   (/^172\.(1[6-9]|2\d|3[01])\./.test(ip));
         }
 
         // create session key and direction
@@ -805,19 +790,16 @@
             const portMatch = packet.info.match(/(\d+)\s*→\s*(\d+)/);
             let src = packet.src_ip;
             let dst = packet.dst_ip;
+            if (groupLanWanCheckbox && groupLanWanCheckbox.checked) {
+                src = isLan(packet.src_ip) ? 'LAN' : 'WAN';
+                dst = isLan(packet.dst_ip) ? 'LAN' : 'WAN';
+            }
             if (portMatch) {
                 src = `${src}:${portMatch[1]}`;
                 dst = `${dst}:${portMatch[2]}`;
             }
-            const prefix = netmaskSelect ? parseInt(netmaskSelect.value) : 32;
-            const srcNet = applyNetmask(packet.src_ip, prefix);
-            const dstNet = applyNetmask(packet.dst_ip, prefix);
-            let a = srcNet;
-            let b = dstNet;
-            if (portMatch) {
-                a = applyNetmask(packet.src_ip, prefix) + `:${portMatch[1]}`;
-                b = applyNetmask(packet.dst_ip, prefix) + `:${portMatch[2]}`;
-            }
+            let a = src;
+            let b = dst;
             let direction = 'a_to_b';
             if (a < b) {
                 direction = 'a_to_b';
@@ -1549,8 +1531,8 @@
             sortFlows(); // sort immediately
         });
 
-        // reset flows when netmask changes
-        netmaskSelect.addEventListener('change', function() {
+        // reset flows when LAN/WAN grouping changes
+        groupLanWanCheckbox.addEventListener('change', function() {
             clearBtn.click();
         });
 

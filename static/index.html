@@ -577,10 +577,10 @@
     </div>
     </div>
 
-    <div id="vizView" class="view">
+        <div id="vizView" class="view">
         <div class="container viz-container">
-            <canvas id="timeChart" height="300"></canvas>
             <svg id="chordDiagram" width="600" height="600"></svg>
+            <canvas id="timeChart" height="300"></canvas>
         </div>
     </div>
 
@@ -1458,8 +1458,8 @@
                 .selectAll('path')
                 .data(chord)
                 .join('path')
-                .attr('stroke', d => color(d.source.index))
-                .attr('stroke-width', d => 1 + Math.sqrt(d.source.value))
+                .attr('stroke', '#888')
+                .attr('stroke-width', 1.5)
                 .attr('d', d => link({
                     source: { angle: (d.source.startAngle + d.source.endAngle) / 2, radius: innerRadius },
                     target: { angle: (d.target.startAngle + d.target.endAngle) / 2, radius: innerRadius }

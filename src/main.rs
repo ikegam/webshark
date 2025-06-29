@@ -153,7 +153,11 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
         "-T", "fields",
         "-e", "frame.time_epoch",
         "-e", "ip.src",
-        "-e", "ip.dst", 
+        "-e", "ip.dst",
+        "-e", "ipv6.src",
+        "-e", "ipv6.dst",
+        "-e", "arp.src.proto_ipv4",
+        "-e", "arp.dst.proto_ipv4",
         "-e", "frame.protocols",
         "-e", "frame.len",
         "-e", "_ws.col.Info",
@@ -213,18 +217,37 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
 
 fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     let parts: Vec<&str> = line.split('|').collect();
-    if parts.len() < 6 {
+    if parts.len() < 10 {
         return None;
     }
 
     let timestamp = parts[0].parse::<f64>().ok()? as u64;
-    let src_ip = if parts[1].is_empty() { "Unknown".to_string() } else { parts[1].to_string() };
-    let dst_ip = if parts[2].is_empty() { "Unknown".to_string() } else { parts[2].to_string() };
-    let protocol = if parts[3].is_empty() { 
-        "Unknown".to_string() 
-    } else { 
+
+    let src_ip = if !parts[1].is_empty() {
+        parts[1].to_string()
+    } else if !parts[3].is_empty() {
+        parts[3].to_string()
+    } else if !parts[5].is_empty() {
+        parts[5].to_string()
+    } else {
+        "Unknown".to_string()
+    };
+
+    let dst_ip = if !parts[2].is_empty() {
+        parts[2].to_string()
+    } else if !parts[4].is_empty() {
+        parts[4].to_string()
+    } else if !parts[6].is_empty() {
+        parts[6].to_string()
+    } else {
+        "Unknown".to_string()
+    };
+
+    let protocol = if parts[7].is_empty() {
+        "Unknown".to_string()
+    } else {
         // Extract actual protocol from protocol hierarchy (e.g. "sll:ethertype:ip:tcp" -> "tcp")
-        let protocols: Vec<&str> = parts[3].split(':').collect();
+        let protocols: Vec<&str> = parts[7].split(':').collect();
         
         // Priority: tcp, udp, icmp, arp, others
         if protocols.contains(&"tcp") {
@@ -244,8 +267,8 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
             protocols.last().map_or("Unknown", |v| v).to_uppercase()
         }
     };
-    let length = parts[4].parse::<u32>().unwrap_or(0);
-    let info = if parts[5].is_empty() { "Unknown".to_string() } else { parts[5].to_string() };
+    let length = parts[8].parse::<u32>().unwrap_or(0);
+    let info = if parts[9].is_empty() { "Unknown".to_string() } else { parts[9].to_string() };
 
     Some(PacketInfo {
         timestamp,

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebShark - パケット可視化ツール</title>
+    <title>WebShark - Network Packet Visualizer</title>
     <style>
         * {
             margin: 0;
@@ -362,6 +362,29 @@
             background: #c53030;
         }
 
+        /* ⚡ ULTRA高速ローディングスケルトン */
+        .loading-skeleton {
+            animation: skeleton-loading 1.5s infinite;
+        }
+        
+        .skeleton-line {
+            height: 16px;
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            animation: skeleton-shimmer 1.5s infinite;
+        }
+        
+        @keyframes skeleton-shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        
+        .ultra-fast-expand {
+            transition: max-height 0.15s ease-out;
+        }
+        
         @media (max-width: 768px) {
             .dashboard {
                 grid-template-columns: 1fr;
@@ -376,105 +399,105 @@
 <body>
     <div class="header">
         <h1>🦈 WebShark</h1>
-        <p>リアルタイムネットワークトラフィック監視</p>
+        <p>Real-time Network Traffic Monitoring</p>
     </div>
 
     <div class="container">
         <div class="controls">
-            <button class="btn" id="startBtn">開始</button>
-            <button class="btn danger" id="stopBtn">停止</button>
-            <button class="btn" id="clearBtn">ログクリア</button>
+            <button class="btn" id="startBtn">Start</button>
+            <button class="btn danger" id="stopBtn">Stop</button>
+            <button class="btn" id="clearBtn">Clear Log</button>
             
             <div class="filter-controls">
                 <div class="checkbox-container">
                     <input type="checkbox" id="hideLocalhost" checked>
-                    <label for="hideLocalhost">localhost通信を非表示</label>
+                    <label for="hideLocalhost">Hide localhost traffic</label>
                 </div>
             </div>
             
             <div class="sort-controls">
-                <label for="sortSessions">セッション順:</label>
+                <label for="sortSessions">Sort by:</label>
                 <select id="sortSessions">
-                    <option value="recent">新しい順</option>
-                    <option value="traffic">トラフィック量順</option>
-                    <option value="alphabetical">アルファベット順</option>
+                    <option value="recent">Most Recent</option>
+                    <option value="traffic">Traffic Volume</option>
+                    <option value="alphabetical">Alphabetical</option>
                 </select>
             </div>
         </div>
 
         <div class="status">
             <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">待機中...</span>
-            <span id="memoryStatus" class="memory-info">メモリ: 0MB</span>
+            <span id="statusText">Waiting...</span>
+            <span id="memoryStatus" class="memory-info">Memory: 0MB</span>
         </div>
 
         <div class="advanced-controls">
-            <h3>🔧 詳細設定</h3>
+            <h3>🔧 Advanced Settings</h3>
             <div class="control-row">
                 <div class="control-group">
-                    <label for="memoryLimit">メモリ制限:</label>
+                    <label for="memoryLimit">Memory Limit:</label>
                     <input type="number" id="memoryLimit" value="50" min="10" max="500" step="10">
                     <span>MB</span>
                 </div>
                 
                 <div class="control-group">
-                    <label for="maxSessions">最大セッション数:</label>
+                    <label for="maxSessions">Max Sessions:</label>
                     <input type="number" id="maxSessions" value="20" min="5" max="100" step="5">
                 </div>
                 
                 <div class="control-group">
-                    <label for="maxPacketsPerSession">セッション内最大パケット数:</label>
+                    <label for="maxPacketsPerSession">Max Packets per Session:</label>
                     <input type="number" id="maxPacketsPerSession" value="50" min="10" max="200" step="10">
                 </div>
             </div>
             
             <div class="control-row">
                 <div class="control-group">
-                    <label for="tsharkFilter">tsharkフィルタ:</label>
-                    <input type="text" id="tsharkFilter" class="filter-input" placeholder="例: tcp port 80 or udp port 53">
-                    <button class="btn" id="applyFilterBtn">適用</button>
+                    <label for="tsharkFilter">tshark Filter:</label>
+                    <input type="text" id="tsharkFilter" class="filter-input" placeholder="e.g. tcp port 80 or udp port 53">
+                    <button class="btn" id="applyFilterBtn">Apply</button>
                 </div>
             </div>
         </div>
 
         <div class="dashboard">
             <div class="card">
-                <h3>📊 統計情報</h3>
+                <h3>📊 Statistics</h3>
                 <div class="stat-item">
-                    <span>総パケット数:</span>
+                    <span>Total Packets:</span>
                     <span id="totalPackets">0</span>
                 </div>
                 <div class="stat-item">
-                    <span>接続状態:</span>
-                    <span id="connectionStatus">切断中</span>
+                    <span>Connection:</span>
+                    <span id="connectionStatus">Disconnected</span>
                 </div>
             </div>
 
             <div class="card">
-                <h3>🔗 プロトコル別</h3>
+                <h3>🔗 By Protocol</h3>
                 <div id="protocolStats">
                     <div class="stat-item">
-                        <span>データなし</span>
+                        <span>No data</span>
                         <span>-</span>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <h3>📍 送信元TOP5</h3>
+                <h3>📍 Top Sources</h3>
                 <div id="sourceStats">
                     <div class="stat-item">
-                        <span>データなし</span>
+                        <span>No data</span>
                         <span>-</span>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <h3>🎯 宛先TOP5</h3>
+                <h3>🎯 Top Destinations</h3>
                 <div id="destStats">
                     <div class="stat-item">
-                        <span>データなし</span>
+                        <span>No data</span>
                         <span>-</span>
                     </div>
                 </div>
@@ -482,20 +505,31 @@
         </div>
 
         <div class="card packet-log">
-            <h3>📦 TCPセッション別パケットログ</h3>
-            <div id="sessionList"></div>
+            <h3>📡 Smart Communication Flows</h3>
+            <div id="flowList"></div>
         </div>
     </div>
 
+    <!-- pako.js for decompression -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <script>
         let ws = null;
         let isRunning = false;
         let packetCount = 0;
-        let tcpSessions = new Map(); // TCPセッション管理
-        let sessionMetadata = new Map(); // セッションのメタデータ（パケット数、最終更新時刻など）
+        // シンプルグルーピング
+        let smartGroups = {
+            tcp_sessions: new Map(),
+            udp_flows: new Map(),
+            other_protocols: new Map()
+        };
+        let groupMetadata = new Map(); // グループのメタデータ
         let estimatedMemoryUsage = 0; // 推定メモリ使用量（MB）
         let batchUpdateTimer = null; // バッチ更新用タイマー
         let pendingUpdates = false; // 保留中の更新フラグ
+        let packetQueue = []; // パケット処理キュー
+        let isProcessingQueue = false; // キュー処理中フラグ
+        let cachedElements = new Map(); // DOM要素キャッシュ
+        let shouldSort = false; // ソートが必要かどうか
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -504,7 +538,7 @@
         const statusText = document.getElementById('statusText');
         const totalPacketsEl = document.getElementById('totalPackets');
         const connectionStatusEl = document.getElementById('connectionStatus');
-        const sessionList = document.getElementById('sessionList');
+        const flowList = document.getElementById('flowList');
         const memoryStatusEl = document.getElementById('memoryStatus');
         const applyFilterBtn = document.getElementById('applyFilterBtn');
 
@@ -522,11 +556,36 @@
                 isRunning = true;
             };
 
-            ws.onmessage = function(event) {
-                const packet = JSON.parse(event.data);
-                addPacketToSession(packet);
-                packetCount++;
+            ws.onmessage = async function(event) {
+                let packets = [];
+                
+                if (event.data instanceof Blob) {
+                    // Decompress data
+                    try {
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const decompressed = pako.inflate(new Uint8Array(arrayBuffer), { to: 'string' });
+                        packets = JSON.parse(decompressed);
+                    } catch (e) {
+                        console.error('Failed to decompress data:', e);
+                        return;
+                    }
+                } else {
+                    // Legacy JSON data (fallback)
+                    packets = [JSON.parse(event.data)];
+                }
+                
+                // Add batch packets to queue
+                packets.forEach(packet => {
+                    packetQueue.push(packet);
+                    packetCount++;
+                });
+                
                 totalPacketsEl.textContent = packetCount.toLocaleString();
+                
+                // Start queue processing
+                if (!isProcessingQueue) {
+                    requestAnimationFrame(processPacketQueue);
+                }
             };
 
             ws.onclose = function() {
@@ -552,163 +611,338 @@
                     (packet.src_ip.startsWith('127.') || packet.src_ip.startsWith('::1')));
         }
 
-        function extractSessionKey(packet) {
-            // TCPセッションを識別するキーを生成
-            // ポート情報を含む場合とIPアドレスのみの場合を考慮
-            let srcInfo = packet.src_ip;
-            let dstInfo = packet.dst_ip;
+        // 🚀 シンプルプロトコル分類
+        function classifyPacket(packet) {
+            const protocol = packet.protocol.toUpperCase();
             
-            // ポート情報を抽出（例: "443 → 55706"）
+            // シンプルなグルーピングに戻す
+            if (protocol === 'TCP') {
+                return { type: 'tcp_sessions', key: createSessionKey(packet) };
+            } else if (protocol === 'UDP') {
+                return { type: 'udp_flows', key: createSessionKey(packet) };
+            } else {
+                return { type: 'other_protocols', key: `${protocol}-${packet.src_ip}` };
+            }
+        }
+        
+        // シンプルなセッションキー作成
+        function createSessionKey(packet) {
+            // ポート情報を抽出
             const portMatch = packet.info.match(/(\d+)\s*→\s*(\d+)/);
+            let src = packet.src_ip;
+            let dst = packet.dst_ip;
+            
             if (portMatch) {
-                srcInfo = `${packet.src_ip}:${portMatch[1]}`;
-                dstInfo = `${packet.dst_ip}:${portMatch[2]}`;
+                src = `${packet.src_ip}:${portMatch[1]}`;
+                dst = `${packet.dst_ip}:${portMatch[2]}`;
             }
             
-            // セッションキーを正規化（小さい方を前に）
-            return srcInfo < dstInfo ? `${srcInfo}⇄${dstInfo}` : `${dstInfo}⇄${srcInfo}`;
+            return src < dst ? `${src} ⇄ ${dst}` : `${dst} ⇄ ${src}`;
         }
 
-        function createSessionElement(sessionKey, firstPacket) {
-            const sessionDiv = document.createElement('div');
-            sessionDiv.className = 'tcp-session';
-            sessionDiv.id = `session-${sessionKey.replace(/[^a-zA-Z0-9]/g, '-')}`;
+        // ⚡ ULTRA高速フロー要素作成
+        function createFlowElement(groupType, groupKey, firstPacket) {
+            const flowDiv = document.createElement('div');
+            flowDiv.className = 'tcp-session'; // CSSは再利用
+            flowDiv.id = `flow-${groupType}-${groupKey.replace(/[^a-zA-Z0-9]/g, '-')}`;
             
-            const [endpoint1, endpoint2] = sessionKey.split('⇄');
+            const { icon, title, subtitle } = getFlowDisplayInfo(groupType, groupKey, firstPacket);
             const timestamp = new Date(firstPacket.timestamp * 1000).toLocaleTimeString();
             
-            sessionDiv.innerHTML = `
-                <div class="session-header" onclick="toggleSession('${sessionDiv.id}')">
+            flowDiv.innerHTML = `
+                <div class="session-header" onclick="toggleFlowUltraFast('${flowDiv.id}')">
                     <div class="session-info">
-                        <div class="session-title">${endpoint1} ⇄ ${endpoint2}</div>
+                        <div class="session-title">${icon} ${title}</div>
                         <div class="session-subtitle">
                             <span class="session-stats">
                                 <span>開始: ${timestamp}</span>
-                                <span>パケット: <span id="${sessionDiv.id}-count">1</span></span>
-                                <span>プロトコル: ${firstPacket.protocol}</span>
+                                <span>パケット: <span id="${flowDiv.id}-count">1</span></span>
+                                <span>${subtitle}</span>
                             </span>
                         </div>
                     </div>
-                    <div class="session-toggle collapsed" id="${sessionDiv.id}-toggle">▶</div>
+                    <div class="session-toggle collapsed" id="${flowDiv.id}-toggle">▶</div>
                 </div>
-                <div class="session-packets collapsed" id="${sessionDiv.id}-packets">
+                <div class="session-packets collapsed" id="${flowDiv.id}-packets">
+                    <div class="loading-skeleton" style="display: none;">
+                        <div class="skeleton-line"></div>
+                        <div class="skeleton-line"></div>
+                        <div class="skeleton-line"></div>
+                    </div>
                 </div>
             `;
             
-            return sessionDiv;
+            return flowDiv;
+        }
+        
+        function getFlowDisplayInfo(groupType, groupKey, packet) {
+            switch (groupType) {
+                case 'tcp_sessions':
+                    return { 
+                        icon: '🔐', 
+                        title: groupKey, 
+                        subtitle: `TCPセッション` 
+                    };
+                case 'udp_flows':
+                    return { 
+                        icon: '📦', 
+                        title: groupKey, 
+                        subtitle: `UDP通信` 
+                    };
+                default:
+                    return { 
+                        icon: '❓', 
+                        title: groupKey, 
+                        subtitle: `${packet.protocol}プロトコル` 
+                    };
+            }
         }
 
-        function addPacketToSession(packet) {
+        function processPacketQueue() {
+            if (packetQueue.length === 0) {
+                isProcessingQueue = false;
+                return;
+            }
+            
+            isProcessingQueue = true;
+            const startTime = performance.now();
+            const maxProcessingTime = 8; // 8msまで処理
+            
+            while (packetQueue.length > 0 && (performance.now() - startTime) < maxProcessingTime) {
+                const packet = packetQueue.shift();
+                processPacket(packet);
+            }
+            
+            if (packetQueue.length > 0) {
+                // まだパケットが残っている場合は次のフレームで続きを処理
+                requestAnimationFrame(processPacketQueue);
+            } else {
+                isProcessingQueue = false;
+                // ソートが必要な場合はここで実行
+                if (shouldSort) {
+                    shouldSort = false;
+                    sortFlows(); // 正しい関数名に修正
+                }
+            }
+        }
+
+        function processPacket(packet) {
             // localhostフィルタリング機能
-            const hideLocalhost = document.getElementById('hideLocalhost').checked;
+            const hideLocalhost = getCachedElement('hideLocalhost').checked;
             if (hideLocalhost && isLocalhostTraffic(packet)) {
                 return; // localhost通信は表示しない
             }
-
-            const sessionKey = extractSessionKey(packet);
-            let sessionElement = tcpSessions.get(sessionKey);
-            
-            if (!sessionElement) {
-                // 新しいセッションを作成
-                sessionElement = createSessionElement(sessionKey, packet);
-                tcpSessions.set(sessionKey, sessionElement);
-                
-                // メタデータを初期化
-                sessionMetadata.set(sessionKey, {
-                    packetCount: 0,
-                    firstSeen: packet.timestamp,
-                    lastSeen: packet.timestamp,
-                    sessionKey: sessionKey
-                });
-                
-                sessionList.insertBefore(sessionElement, sessionList.firstChild);
-            }
-            
-            // パケットをセッションに追加（軽量化）
-            const packetsContainer = sessionElement.querySelector('.session-packets');
-            
-            // セッションが閉じている場合はDOM操作をスキップ
-            if (!packetsContainer.classList.contains('collapsed')) {
-                const packetDiv = document.createElement('div');
-                packetDiv.className = 'session-packet';
-                
-                const timestamp = new Date(packet.timestamp * 1000).toLocaleTimeString();
-                packetDiv.innerHTML = `
-                    <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
-                    <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
-                    <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
-                `;
-                
-                packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
-            }
-            
-            // パケット数とメタデータを更新
-            const metadata = sessionMetadata.get(sessionKey);
-            metadata.packetCount++;
-            metadata.lastSeen = packet.timestamp;
-            
-            const countElement = sessionElement.querySelector(`#${sessionElement.id}-count`);
-            countElement.textContent = metadata.packetCount;
-            
-            // メモリ使用量を更新
-            estimatedMemoryUsage += estimatePacketMemoryUsage(packet);
-            
-            // 動的制限値を取得
-            const maxPacketsPerSession = parseInt(document.getElementById('maxPacketsPerSession').value) || 50;
-            const maxSessions = parseInt(document.getElementById('maxSessions').value) || 20;
-            const memoryLimit = parseInt(document.getElementById('memoryLimit').value) || 50;
-            
-            // セッション内パケット数制限
-            while (packetsContainer.children.length > maxPacketsPerSession) {
-                packetsContainer.removeChild(packetsContainer.lastChild);
-                estimatedMemoryUsage -= 0.001; // 概算削除
-            }
-            
-            // メモリ制限チェック
-            if (estimatedMemoryUsage > memoryLimit) {
-                cleanupOldSessions();
-            }
-            
-            // セッション数制限
-            if (tcpSessions.size > maxSessions) {
-                const oldestSession = sessionList.lastChild;
-                if (oldestSession) {
-                    const oldestKey = Array.from(tcpSessions.keys()).find(key => 
-                        tcpSessions.get(key) === oldestSession
-                    );
-                    if (oldestKey) {
-                        removeSession(oldestKey);
-                    }
-                }
-            }
-            
-            // バッチ更新をスケジュール
-            scheduleBatchUpdate();
+            addPacketToFlow(packet); // 新しいスマートフロー処理
         }
 
-        function toggleSession(sessionId) {
-            const packetsContainer = document.getElementById(`${sessionId}-packets`);
-            const toggleIcon = document.getElementById(`${sessionId}-toggle`);
+        // 🚀 ULTRAスマートパケット処理
+        function addPacketToFlow(packet) {
+            const classification = classifyPacket(packet);
+            const { type, key } = classification;
+            
+            let flowElement = smartGroups[type].get(key);
+            
+            if (!flowElement) {
+                // 新しいフローを作成
+                flowElement = createFlowElement(type, key, packet);
+                smartGroups[type].set(key, flowElement);
+                
+                // メタデータを初期化
+                const metadata = {
+                    type: type,
+                    key: key,
+                    packetCount: 0,
+                    packets: [],
+                    firstSeen: packet.timestamp,
+                    lastSeen: packet.timestamp,
+                    packetsContainer: flowElement.querySelector('.session-packets'),
+                    countElement: flowElement.querySelector(`#${flowElement.id}-count`),
+                    isExpanded: false
+                };
+                
+                groupMetadata.set(`${type}-${key}`, metadata);
+                flowList.insertBefore(flowElement, flowList.firstChild);
+                shouldSort = true;
+            }
+            
+            const metadata = groupMetadata.get(`${type}-${key}`);
+            metadata.packets.push(packet);
+            metadata.packetCount++;
+            metadata.lastSeen = packet.timestamp;
+            metadata.countElement.textContent = metadata.packetCount;
+            
+            if (metadata.isExpanded) {
+                addPacketToExpandedFlow(metadata, packet);
+            }
+            
+            estimatedMemoryUsage += 0.001;
+            checkLimits();
+        }
+        
+        function addPacketToExpandedFlow(metadata, packet) {
+            const packetsContainer = metadata.packetsContainer;
+            const skeleton = packetsContainer.querySelector('.loading-skeleton');
+            if (skeleton) skeleton.style.display = 'none';
+            
+            const packetDiv = document.createElement('div');
+            packetDiv.className = 'session-packet';
+            
+            const timestamp = formatTimestamp(packet.timestamp);
+            packetDiv.innerHTML = `
+                <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
+                <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
+                <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
+            `;
+            
+            packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
+            
+            // パケット数制限
+            const maxPacketsPerSession = parseInt(getCachedElement('maxPacketsPerSession').value) || 50;
+            while (packetsContainer.children.length > maxPacketsPerSession + 1) { // +1 for skeleton
+                packetsContainer.removeChild(packetsContainer.lastChild);
+            }
+        }
+
+        // ⚡ ULTRA高速フロートグル (0.1秒以内表示)
+        function toggleFlowUltraFast(flowId) {
+            const packetsContainer = document.getElementById(`${flowId}-packets`);
+            const toggleIcon = document.getElementById(`${flowId}-toggle`);
+            const skeleton = packetsContainer.querySelector('.loading-skeleton');
             
             if (packetsContainer.classList.contains('collapsed')) {
+                // ✨ 即座スケルトン表示 (0.01秒)
                 packetsContainer.classList.remove('collapsed');
                 toggleIcon.classList.remove('collapsed');
                 toggleIcon.textContent = '▼';
                 
-                // セッションを開く時にパケットが少ない場合は再描画
-                if (packetsContainer.children.length === 0) {
-                    refreshSessionPackets(sessionId);
+                if (skeleton) skeleton.style.display = 'block';
+                
+                // メタデータを取得
+                const metadataKey = flowId.replace('flow-', '').replace(/-/g, '-', 1);
+                const metadata = Array.from(groupMetadata.values()).find(m => 
+                    flowId.includes(m.type) && flowId.includes(m.key.replace(/[^a-zA-Z0-9]/g, '-'))
+                );
+                
+                if (metadata) {
+                    metadata.isExpanded = true;
+                    // 非同期でパケットをロード
+                    requestIdleCallback(() => loadPacketsChunked(metadata));
                 }
+                
             } else {
                 packetsContainer.classList.add('collapsed');
                 toggleIcon.classList.add('collapsed');
                 toggleIcon.textContent = '▶';
+                
+                // メタデータを更新
+                const metadataKey = flowId.replace('flow-', '').replace(/-/g, '-', 1);
+                const metadata = Array.from(groupMetadata.values()).find(m => 
+                    flowId.includes(m.type) && flowId.includes(m.key.replace(/[^a-zA-Z0-9]/g, '-'))
+                );
+                
+                if (metadata) {
+                    metadata.isExpanded = false;
+                }
             }
+        }
+        
+        // 🚀 チャンク化超高速ローディング
+        function loadPacketsChunked(metadata) {
+            const packetsContainer = metadata.packetsContainer;
+            const skeleton = packetsContainer.querySelector('.loading-skeleton');
+            const packets = metadata.packets;
+            
+            if (packets.length === 0) {
+                if (skeleton) skeleton.style.display = 'none';
+                return;
+            }
+            
+            const chunkSize = 20; // 20件ずつロード
+            let currentIndex = 0;
+            
+            function loadChunk() {
+                const endIndex = Math.min(currentIndex + chunkSize, packets.length);
+                const fragment = document.createDocumentFragment();
+                
+                for (let i = currentIndex; i < endIndex; i++) {
+                    const packet = packets[packets.length - 1 - i]; // 新しい順
+                    const packetDiv = document.createElement('div');
+                    packetDiv.className = 'session-packet';
+                    
+                    const timestamp = formatTimestamp(packet.timestamp);
+                    packetDiv.innerHTML = `
+                        <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
+                        <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
+                        <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
+                    `;
+                    
+                    fragment.appendChild(packetDiv);
+                }
+                
+                if (skeleton && skeleton.parentNode) {
+                    packetsContainer.insertBefore(fragment, skeleton);
+                } else {
+                    packetsContainer.appendChild(fragment);
+                }
+                
+                currentIndex = endIndex;
+                
+                if (currentIndex < packets.length && metadata.isExpanded) {
+                    // 次のチャンクを非同期でロード
+                    requestAnimationFrame(loadChunk);
+                } else {
+                    // ローディング完了
+                    if (skeleton) skeleton.style.display = 'none';
+                }
+            }
+            
+            // 最初のチャンクを即座ロード
+            loadChunk();
         }
 
         function refreshSessionPackets(sessionId) {
             // 必要に応じてセッションのパケットを再描画
             // パフォーマンス向上のため、現在は実装省略
+        }
+
+        function getCachedElement(id) {
+            if (!cachedElements.has(id)) {
+                cachedElements.set(id, document.getElementById(id));
+            }
+            return cachedElements.get(id);
+        }
+        
+        function formatTimestamp(timestamp) {
+            return new Date(timestamp * 1000).toLocaleTimeString();
+        }
+        
+        function checkLimits() {
+            // 定期的なチェックを行う
+            if (Math.random() < 0.01) { // 1%の確率でチェック
+                const maxSessions = parseInt(getCachedElement('maxSessions').value) || 20;
+                const memoryLimit = parseInt(getCachedElement('memoryLimit').value) || 50;
+                
+                if (estimatedMemoryUsage > memoryLimit) {
+                    cleanupOldFlows();
+                }
+                
+                const totalFlows = groupMetadata.size;
+                if (totalFlows > maxSessions) {
+                    const oldestFlow = flowList.lastChild;
+                    if (oldestFlow) {
+                        const oldestKey = Array.from(groupMetadata.keys()).find(key => {
+                            const metadata = groupMetadata.get(key);
+                            return metadata && smartGroups[metadata.type].get && 
+                                   smartGroups[metadata.type].get(metadata.key) === oldestFlow;
+                        });
+                        if (oldestKey) {
+                            removeFlow(oldestKey);
+                        }
+                    }
+                }
+                
+                updateMemoryDisplay();
+            }
         }
 
         function scheduleBatchUpdate() {
@@ -722,39 +956,53 @@
             batchUpdateTimer = setTimeout(() => {
                 performBatchUpdate();
                 pendingUpdates = false;
-            }, 100); // 100ms後にバッチ更新
+            }, 500); // 500msに延長
         }
-
+        
         function performBatchUpdate() {
             updateMemoryDisplay();
-            sortSessions();
+            if (shouldSort) {
+                shouldSort = false;
+                sortFlows();
+            }
         }
 
-        function sortSessions() {
-            const sortOption = document.getElementById('sortSessions').value;
-            const sessions = Array.from(sessionMetadata.entries());
+        function sortFlows() {
+            const sortOption = getCachedElement('sortSessions').value;
+            const allFlows = [];
             
-            sessions.sort(([keyA, metaA], [keyB, metaB]) => {
+            // 全てのグループからフローを収集
+            Object.keys(smartGroups).forEach(groupType => {
+                const group = smartGroups[groupType];
+                for (const [key, element] of group.entries()) {
+                    allFlows.push({ key: `${groupType}-${key}`, element });
+                }
+            });
+            
+            allFlows.sort((a, b) => {
+                const metaA = groupMetadata.get(a.key);
+                const metaB = groupMetadata.get(b.key);
+                
+                if (!metaA || !metaB) return 0;
+                
                 switch (sortOption) {
                     case 'traffic':
-                        return metaB.packetCount - metaA.packetCount; // 降順
+                        return metaB.packetCount - metaA.packetCount;
                     case 'alphabetical':
-                        return keyA.localeCompare(keyB); // 昇順
+                        return a.key.localeCompare(b.key);
                     case 'recent':
                     default:
-                        return metaB.lastSeen - metaA.lastSeen; // 降順（新しい順）
+                        return metaB.lastSeen - metaA.lastSeen;
                 }
             });
             
-            // DocumentFragmentを使用して効率的にDOM操作
             const fragment = document.createDocumentFragment();
-            sessions.forEach(([sessionKey, metadata]) => {
-                const sessionElement = tcpSessions.get(sessionKey);
-                if (sessionElement && sessionElement.parentNode) {
-                    fragment.appendChild(sessionElement);
+            allFlows.forEach(({ element }) => {
+                if (element && element.parentNode) {
+                    fragment.appendChild(element);
                 }
             });
-            sessionList.appendChild(fragment);
+            flowList.appendChild(fragment);
         }
 
         function estimatePacketMemoryUsage(packet) {
@@ -778,31 +1026,33 @@
             }
         }
 
-        function removeSession(sessionKey) {
-            const sessionElement = tcpSessions.get(sessionKey);
-            if (sessionElement) {
-                // セッションのメモリ使用量を概算で削除
-                const metadata = sessionMetadata.get(sessionKey);
-                if (metadata) {
-                    estimatedMemoryUsage -= metadata.packetCount * 0.001;
-                }
+        function removeFlow(metadataKey) {
+            const metadata = groupMetadata.get(metadataKey);
+            if (!metadata) return;
+            
+            const { type, key } = metadata;
+            const flowElement = smartGroups[type].get(key);
+            
+            if (flowElement && flowElement.parentNode) {
+                // メモリ使用量を概算で削除
+                estimatedMemoryUsage -= metadata.packetCount * 0.001;
                 
-                tcpSessions.delete(sessionKey);
-                sessionMetadata.delete(sessionKey);
-                sessionList.removeChild(sessionElement);
+                smartGroups[type].delete(key);
+                flowList.removeChild(flowElement);
+                groupMetadata.delete(metadataKey);
             }
         }
 
-        function cleanupOldSessions() {
-            // 古いセッションから削除
-            const sessions = Array.from(sessionMetadata.entries())
+        function cleanupOldFlows() {
+            // 古いフローから削除
+            const flows = Array.from(groupMetadata.entries())
                 .sort(([,a], [,b]) => a.lastSeen - b.lastSeen); // 古い順
             
-            const memoryLimit = parseInt(document.getElementById('memoryLimit').value) || 50;
+            const memoryLimit = parseInt(getCachedElement('memoryLimit').value) || 50;
             
-            while (estimatedMemoryUsage > memoryLimit * 0.7 && sessions.length > 0) {
-                const [oldestKey] = sessions.shift();
-                removeSession(oldestKey);
+            while (estimatedMemoryUsage > memoryLimit * 0.7 && flows.length > 0) {
+                const [oldestKey] = flows.shift();
+                removeFlow(oldestKey);
             }
         }
 
@@ -822,10 +1072,13 @@
                 
                 if (response.ok) {
                     console.log('フィルタが適用されました:', filterValue);
-                    // セッションリストをクリア（新しいフィルタで再開）
-                    sessionList.innerHTML = '';
-                    tcpSessions.clear();
-                    sessionMetadata.clear();
+                    // フローリストをクリア（新しいフィルタで再開）
+                    flowList.innerHTML = '';
+                    Object.keys(smartGroups).forEach(groupType => {
+                        smartGroups[groupType].clear();
+                    });
+                    groupMetadata.clear();
+                    packetQueue.length = 0;
                     estimatedMemoryUsage = 0;
                     updateMemoryDisplay();
                 } else {
@@ -869,6 +1122,8 @@
                 const response = await fetch('/api/stats');
                 const stats = await response.json();
                 
+                console.log('統計情報を取得:', stats);
+                
                 updateProtocolStats(stats.protocols);
                 updateTopStats('sourceStats', stats.top_sources);
                 updateTopStats('destStats', stats.top_destinations);
@@ -878,8 +1133,15 @@
         }
 
         function updateProtocolStats(protocols) {
-            const container = document.getElementById('protocolStats');
+            const container = getCachedElement('protocolStats');
+            if (!container) {
+                console.error('protocolStats要素が見つかりません');
+                return;
+            }
+            
             container.innerHTML = '';
+            
+            console.log('プロトコル統計更新:', protocols);
             
             const sorted = Object.entries(protocols)
                 .sort(([,a], [,b]) => b - a)
@@ -893,13 +1155,18 @@
             sorted.forEach(([protocol, count]) => {
                 const item = document.createElement('div');
                 item.className = 'stat-item';
-                item.innerHTML = `<span>${protocol}</span><span>${count}</span>`;
+                item.innerHTML = `<span>${protocol.toUpperCase()}</span><span>${count}</span>`;
                 container.appendChild(item);
             });
         }
 
         function updateTopStats(containerId, data) {
-            const container = document.getElementById(containerId);
+            const container = getCachedElement(containerId);
+            if (!container) {
+                console.error(`${containerId}要素が見つかりません`);
+                return;
+            }
+            
             container.innerHTML = '';
             
             const sorted = Object.entries(data)
@@ -932,9 +1199,13 @@
         });
 
         clearBtn.addEventListener('click', function() {
-            sessionList.innerHTML = '';
-            tcpSessions.clear();
-            sessionMetadata.clear();
+            flowList.innerHTML = '';
+            // 全てのスマートグループをクリア
+            Object.keys(smartGroups).forEach(groupType => {
+                smartGroups[groupType].clear();
+            });
+            groupMetadata.clear();
+            packetQueue.length = 0; // キューもクリア
             packetCount = 0;
             estimatedMemoryUsage = 0;
             totalPacketsEl.textContent = '0';
@@ -942,8 +1213,8 @@
         });
 
         // ソート機能のイベントリスナー
-        document.getElementById('sortSessions').addEventListener('change', function() {
-            scheduleBatchUpdate();
+        getCachedElement('sortSessions').addEventListener('change', function() {
+            sortFlows(); // 即座ソート実行
         });
 
         // フィルタ適用ボタンのイベントリスナー
@@ -956,8 +1227,14 @@
             }
         });
 
-        // 統計情報を5秒ごとに更新
-        setInterval(updateStats, 5000);
+        // 統計情報を定期的に更新
+        setInterval(updateStats, 5000); // 5秒に戻す
+        
+        // メモリ表示更新の定期実行
+        setInterval(updateMemoryDisplay, 2000);
+        
+        // 初回統計情報を取得
+        updateStats();
 
         // 初期接続
         connectWebSocket();

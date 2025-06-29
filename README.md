@@ -1,25 +1,27 @@
 # WebShark
 
-🦈 Linuxゲートウェイ上でネットワークパケットをリアルタイムで可視化するWebベースのネットワーク分析ツールです。
+🦈 A web-based network analysis tool for real-time packet visualization on Linux gateways.
 
-## 特徴
+## Features
 
-- 🚀 **シンプルな構成**: Rustで書かれた単一バイナリ
-- 📊 **リアルタイム可視化**: WebSocketを使った動的更新
-- 🔍 **tshark統合**: Wiresharkのtsharkコマンドを使用
-- 🎨 **美しいUI**: モダンなWebインターフェース
-- 📈 **統計情報**: プロトコル別、送信元/宛先別の統計
+- 🚀 **Simple Setup**: Single binary written in Rust
+- 📊 **Real-time Visualization**: Dynamic updates via WebSocket
+- 🔍 **tshark Integration**: Uses Wireshark's tshark command
+- 🎨 **Beautiful UI**: Modern web interface
+- 📈 **Statistics**: Protocol-wise and source/destination statistics
+- ⚡ **High Performance**: Compressed WebSocket communication
+- 🔧 **Flexible Filtering**: tshark filter support and localhost toggle
 
-## 必要な依存関係
+## Requirements
 
-### システム要件
-- Linux OS (Ubuntu, CentOS, Debian等)
+### System Requirements
+- Linux OS (Ubuntu, CentOS, Debian, etc.)
 - Rust 1.70+
-- Wireshark (tsharkコマンド)
+- Wireshark (tshark command)
 
-### インストール
+### Installation
 
-1. **Wiresharkのインストール**:
+1. **Install Wireshark**:
    ```bash
    # Ubuntu/Debian
    sudo apt update
@@ -28,118 +30,120 @@
    # CentOS/RHEL
    sudo yum install wireshark-cli
    
-   # または
+   # or
    sudo dnf install wireshark-cli
    ```
 
-2. **権限設定** (重要):
+2. **Set Permissions** (Important):
    ```bash
-   # wiresharkグループに追加
+   # Add to wireshark group
    sudo usermod -a -G wireshark $USER
    
-   # または、sudoなしでtsharkを実行できるように設定
+   # Or allow tshark to run without sudo
    sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/tshark
    ```
 
-3. **Rustのインストール** (必要に応じて):
+3. **Install Rust** (if needed):
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    source ~/.cargo/env
    ```
 
-## ビルドと実行
+## Build and Run
 
-1. **プロジェクトのビルド**:
+1. **Build the project**:
    ```bash
    cargo build --release
    ```
 
-2. **実行**:
+2. **Run**:
    ```bash
-   # 管理者権限で実行 (ネットワークインターフェースアクセスのため)
+   # Run with administrator privileges (for network interface access)
    sudo ./target/release/webshark
    ```
 
-3. **ブラウザでアクセス**:
+3. **Access via browser**:
    ```
    http://localhost:3000
    ```
 
-## 使用方法
+## Usage
 
-1. ブラウザで `http://localhost:3000` にアクセス
-2. 「開始」ボタンをクリックしてパケットキャプチャを開始
-3. リアルタイムでパケット情報が表示される
-4. 統計情報も自動的に更新される
+1. Access `http://localhost:3000` in your browser
+2. Click "Start" button to begin packet capture
+3. Real-time packet information will be displayed
+4. Statistics are automatically updated
 
-## 設定オプション
+## Configuration Options
 
-### インターフェース指定
-デフォルトでは全インターフェース(`any`)を監視しますが、特定のインターフェースを指定したい場合は、
-`src/main.rs`の129行目を変更してください：
+### Interface Specification
+By default, all interfaces (`any`) are monitored. To specify a particular interface,
+modify line 129 of `src/main.rs`:
 
 ```rust
 .args(&[
-    "-i", "eth0",  // 特定のインターフェース
+    "-i", "eth0",  // Specific interface
     // ...
 ])
 ```
 
-### ポート変更
-デフォルトポート3000を変更したい場合は、97行目を変更してください：
+### Port Change
+To change the default port 3000, modify line 97:
 
 ```rust
 let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
 ```
 
-## トラブルシューティング
+## Troubleshooting
 
-### 1. tsharkが見つからない
+### 1. tshark not found
+Check with:
 ```bash
 which tshark
 ```
-で確認し、パスが通っていることを確認してください。
+Ensure the path is correct.
 
-### 2. 権限エラー
+### 2. Permission errors
+Run with:
 ```bash
-sudo ./target/release/packet-visualizer
+sudo ./target/release/webshark
 ```
-で実行するか、上記の権限設定を行ってください。
+or perform the permission setup mentioned above.
 
-### 3. ネットワークインターフェースが見つからない
+### 3. Network interface not found
+Check available interfaces with:
 ```bash
 ip link show
 ```
-で利用可能なインターフェースを確認してください。
 
-### 4. WebSocket接続エラー
-ファイアウォールで3000ポートが開いていることを確認してください：
+### 4. WebSocket connection errors
+Ensure port 3000 is open in the firewall:
 ```bash
 sudo ufw allow 3000
 ```
 
-## 開発
+## Development
 
-### ログ出力
+### Log output
 ```bash
 RUST_LOG=debug cargo run
 ```
 
-### ホットリロード
+### Hot reload
 ```bash
 cargo watch -x run
 ```
 
-## セキュリティ注意事項
+## Security Notes
 
-- このツールは管理者権限で実行する必要があります
-- 本番環境では適切なアクセス制限を設定してください
-- ネットワークトラフィックを監視するため、プライバシーに配慮してください
+- This tool requires administrator privileges to run
+- Set appropriate access restrictions in production environments
+- Consider privacy when monitoring network traffic
 
-## ライセンス
+## License
 
 MIT License
 
-## 貢献
+## Contributing
 
-バグ報告や機能要望は、GitHubのIssueまでお願いします。
+Please submit bug reports and feature requests via GitHub Issues.

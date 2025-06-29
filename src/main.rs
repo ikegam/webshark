@@ -7,6 +7,8 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use flate2::{write::GzEncoder, Compression};
+use std::io::Write;
 use std::{
     collections::HashMap,
     process::Stdio,
@@ -71,7 +73,7 @@ async fn main() {
     let (tx, _rx) = broadcast::channel(1000);
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
-    // パケットキャプチャタスクを開始
+    // Start packet capture task
     let stats_clone = stats.clone();
     let filter_clone = filter.clone();
     let tx_clone = tx.clone();
@@ -79,7 +81,7 @@ async fn main() {
         capture_packets_manager(stats_clone, filter_clone, tx_clone, cmd_rx).await;
     });
 
-    // Webサーバーを設定
+    // Configure web server
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/api/stats", get(stats_handler))
@@ -92,7 +94,7 @@ async fn main() {
         )
         .with_state((stats, filter, tx, cmd_tx));
 
-    info!("パケット可視化サーバーを起動中... http://localhost:3000");
+    info!("Starting packet visualization server... http://localhost:3000");
     
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -104,29 +106,29 @@ async fn capture_packets_manager(
     tx: Broadcaster, 
     mut cmd_rx: mpsc::UnboundedReceiver<CaptureCommand>
 ) {
-    info!("パケットキャプチャマネージャーを開始");
+    info!("Starting packet capture manager");
     
     loop {
         let capture_task = tokio::spawn(capture_packets(stats.clone(), filter.clone(), tx.clone()));
         
-        // 再起動コマンドを待機
+        // Wait for restart command
         if let Some(CaptureCommand::Restart) = cmd_rx.recv().await {
-            info!("パケットキャプチャを再起動中...");
+            info!("Restarting packet capture...");
             capture_task.abort();
             continue;
         } else {
-            // コマンドチャンネルが閉じられた場合、終了
+            // Exit if command channel is closed
             break;
         }
     }
 }
 
 async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcaster) {
-    info!("パケットキャプチャを開始");
+    info!("Starting packet capture");
 
-    // 基本的なtsharkコマンド引数
+    // Basic tshark command arguments
     let mut args = vec![
-        "-i", "any",  // 全インターフェース
+        "-i", "any",  // All interfaces
         "-T", "fields",
         "-e", "frame.time_epoch",
         "-e", "ip.src",
@@ -135,10 +137,10 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
         "-e", "frame.len",
         "-e", "_ws.col.Info",
         "-E", "separator=|",
-        "-l"  // 行バッファリング
+        "-l"  // Line buffering
     ];
 
-    // フィルタが設定されている場合は追加
+    // Add filter if configured
     let filter_string = {
         let filter_guard = filter.lock().unwrap();
         filter_guard.tshark_filter.clone()
@@ -160,8 +162,8 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
     let mut child = match cmd {
         Ok(child) => child,
         Err(e) => {
-            error!("tsharkの起動に失敗: {}", e);
-            warn!("tsharkがインストールされていることを確認してください");
+            error!("Failed to start tshark: {}", e);
+            warn!("Please ensure tshark is installed");
             return;
         }
     };
@@ -171,7 +173,7 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
 
     while let Ok(Some(line)) = reader.next_line().await {
         if let Some(packet) = parse_tshark_line(&line) {
-            // 統計を更新
+            // Update statistics
             {
                 let mut stats = stats.lock().unwrap();
                 stats.total_packets += 1;
@@ -180,9 +182,9 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
                 *stats.top_destinations.entry(packet.dst_ip.clone()).or_insert(0) += 1;
             }
 
-            // WebSocketクライアントに送信
+            // Send to WebSocket clients
             if let Err(_) = tx.send(packet) {
-                // 接続されているクライアントがいない場合は無視
+                // Ignore if no clients are connected
             }
         }
     }
@@ -197,8 +199,29 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     let timestamp = parts[0].parse::<f64>().ok()? as u64;
     let src_ip = if parts[1].is_empty() { "N/A".to_string() } else { parts[1].to_string() };
     let dst_ip = if parts[2].is_empty() { "N/A".to_string() } else { parts[2].to_string() };
-    let protocol = if parts[3].is_empty() { "Unknown".to_string() } else { 
-        parts[3].split(':').next().unwrap_or("Unknown").to_string()
+    let protocol = if parts[3].is_empty() { 
+        "Unknown".to_string() 
+    } else { 
+        // Extract actual protocol from protocol hierarchy (e.g. "sll:ethertype:ip:tcp" -> "tcp")
+        let protocols: Vec<&str> = parts[3].split(':').collect();
+        
+        // Priority: tcp, udp, icmp, arp, others
+        if protocols.contains(&"tcp") {
+            "TCP".to_string()
+        } else if protocols.contains(&"udp") {
+            "UDP".to_string()
+        } else if protocols.contains(&"icmp") || protocols.contains(&"icmpv6") {
+            "ICMP".to_string()
+        } else if protocols.contains(&"arp") {
+            "ARP".to_string()
+        } else if protocols.contains(&"ipv6") {
+            "IPv6".to_string()
+        } else if protocols.contains(&"ip") {
+            "IP".to_string()
+        } else {
+            // Use the last protocol (most specific)
+            protocols.last().map_or("Unknown", |v| v).to_uppercase()
+        }
     };
     let length = parts[4].parse::<u32>().unwrap_or(0);
     let info = if parts[5].is_empty() { "N/A".to_string() } else { parts[5].to_string() };
@@ -228,11 +251,11 @@ async fn set_filter_handler(
 ) -> Result<Json<FilterConfig>, StatusCode> {
     let mut filter_guard = filter.lock().unwrap();
     *filter_guard = new_filter.clone();
-    info!("フィルタが更新されました: {:?}", new_filter.tshark_filter);
+    info!("Filter updated: {:?}", new_filter.tshark_filter);
     
-    // パケットキャプチャを再起動
+    // Restart packet capture
     if let Err(_) = cmd_tx.send(CaptureCommand::Restart) {
-        error!("キャプチャ再起動コマンドの送信に失敗");
+        error!("Failed to send capture restart command");
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     
@@ -249,18 +272,36 @@ async fn websocket_handler(
 async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = tx.subscribe();
+    let mut packet_buffer = Vec::new();
+    let mut last_flush = std::time::Instant::now();
 
-    // パケット受信タスク
+    // Packet reception task (batch + compression)
     let packet_task = tokio::spawn(async move {
         while let Ok(packet) = rx.recv().await {
-            let msg = serde_json::to_string(&packet).unwrap();
-            if sender.send(Message::Text(msg)).await.is_err() {
-                break;
+            packet_buffer.push(packet);
+            
+            // Batch send every 100ms or 50 packets
+            if packet_buffer.len() >= 50 || last_flush.elapsed() >= std::time::Duration::from_millis(100) {
+                if !packet_buffer.is_empty() {
+                    let batch_data = serde_json::to_string(&packet_buffer).unwrap();
+                    
+                    // gzip compression
+                    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+                    encoder.write_all(batch_data.as_bytes()).unwrap();
+                    let compressed = encoder.finish().unwrap();
+                    
+                    if sender.send(Message::Binary(compressed)).await.is_err() {
+                        break;
+                    }
+                    
+                    packet_buffer.clear();
+                    last_flush = std::time::Instant::now();
+                }
             }
         }
     });
 
-    // クライアントからのメッセージ処理（ping/pong等）
+    // Handle client messages (ping/pong etc.)
     let ping_task = tokio::spawn(async move {
         while let Some(msg) = receiver.next().await {
             if msg.is_err() {
@@ -269,7 +310,7 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
         }
     });
 
-    // どちらかのタスクが終了したら終了
+    // Exit when either task ends
     tokio::select! {
         _ = packet_task => {},
         _ = ping_task => {},

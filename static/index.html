@@ -391,8 +391,8 @@
         }
 
         #vizView .viz-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
+            display: flex;
+            flex-direction: column;
             gap: 2rem;
             align-items: center;
         }
@@ -441,7 +441,7 @@
             }
 
             #vizView .viz-container {
-                grid-template-columns: 1fr;
+                flex-direction: column;
             }
         }
     </style>
@@ -1432,12 +1432,26 @@
 
             const g = chordSvg.append('g');
 
-            g.append('g')
-                .selectAll('path')
+            const groups = g.append('g')
+                .selectAll('g')
                 .data(chord.groups)
-                .join('path')
+                .join('g');
+
+            groups.append('path')
                 .attr('fill', d => color(d.index))
                 .attr('d', arc);
+
+            groups.append('text')
+                .attr('dy', -3)
+                .attr('transform', d => {
+                    const angle = (d.startAngle + d.endAngle) / 2;
+                    const rotate = angle * 180 / Math.PI - 90;
+                    const flip = angle > Math.PI ? ' rotate(180)' : '';
+                    const translate = outerRadius + 10;
+                    return `rotate(${rotate}) translate(${translate})${flip}`;
+                })
+                .attr('text-anchor', d => ((d.startAngle + d.endAngle) / 2) > Math.PI ? 'end' : 'start')
+                .text(d => hosts[d.index]);
 
             g.append('g')
                 .attr('fill', 'none')

@@ -287,6 +287,57 @@
             cursor: pointer;
         }
 
+        .advanced-controls {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: #f7fafc;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .control-group label {
+            font-weight: 500;
+            color: #4a5568;
+            white-space: nowrap;
+        }
+
+        .control-group input, .control-group select {
+            padding: 0.5rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            background: white;
+            color: #4a5568;
+        }
+
+        .filter-input {
+            width: 300px;
+            font-family: monospace;
+        }
+
+        .memory-info {
+            font-size: 0.85rem;
+            color: #718096;
+            margin-left: 0.5rem;
+        }
+
         .btn {
             padding: 0.75rem 1.5rem;
             border: none;
@@ -354,6 +405,36 @@
         <div class="status">
             <div class="status-dot" id="statusDot"></div>
             <span id="statusText">待機中...</span>
+            <span id="memoryStatus" class="memory-info">メモリ: 0MB</span>
+        </div>
+
+        <div class="advanced-controls">
+            <h3>🔧 詳細設定</h3>
+            <div class="control-row">
+                <div class="control-group">
+                    <label for="memoryLimit">メモリ制限:</label>
+                    <input type="number" id="memoryLimit" value="50" min="10" max="500" step="10">
+                    <span>MB</span>
+                </div>
+                
+                <div class="control-group">
+                    <label for="maxSessions">最大セッション数:</label>
+                    <input type="number" id="maxSessions" value="20" min="5" max="100" step="5">
+                </div>
+                
+                <div class="control-group">
+                    <label for="maxPacketsPerSession">セッション内最大パケット数:</label>
+                    <input type="number" id="maxPacketsPerSession" value="50" min="10" max="200" step="10">
+                </div>
+            </div>
+            
+            <div class="control-row">
+                <div class="control-group">
+                    <label for="tsharkFilter">tsharkフィルタ:</label>
+                    <input type="text" id="tsharkFilter" class="filter-input" placeholder="例: tcp port 80 or udp port 53">
+                    <button class="btn" id="applyFilterBtn">適用</button>
+                </div>
+            </div>
         </div>
 
         <div class="dashboard">
@@ -412,6 +493,7 @@
         let packetCount = 0;
         let tcpSessions = new Map(); // TCPセッション管理
         let sessionMetadata = new Map(); // セッションのメタデータ（パケット数、最終更新時刻など）
+        let estimatedMemoryUsage = 0; // 推定メモリ使用量（MB）
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -421,6 +503,8 @@
         const totalPacketsEl = document.getElementById('totalPackets');
         const connectionStatusEl = document.getElementById('connectionStatus');
         const sessionList = document.getElementById('sessionList');
+        const memoryStatusEl = document.getElementById('memoryStatus');
+        const applyFilterBtn = document.getElementById('applyFilterBtn');
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -560,25 +644,40 @@
             const countElement = sessionElement.querySelector(`#${sessionElement.id}-count`);
             countElement.textContent = metadata.packetCount;
             
-            // 最大50個のパケットを保持
-            while (packetsContainer.children.length > 50) {
+            // メモリ使用量を更新
+            estimatedMemoryUsage += estimatePacketMemoryUsage(packet);
+            
+            // 動的制限値を取得
+            const maxPacketsPerSession = parseInt(document.getElementById('maxPacketsPerSession').value) || 50;
+            const maxSessions = parseInt(document.getElementById('maxSessions').value) || 20;
+            const memoryLimit = parseInt(document.getElementById('memoryLimit').value) || 50;
+            
+            // セッション内パケット数制限
+            while (packetsContainer.children.length > maxPacketsPerSession) {
                 packetsContainer.removeChild(packetsContainer.lastChild);
+                estimatedMemoryUsage -= 0.001; // 概算削除
             }
             
-            // セッション数制限（最大20セッション）
-            if (tcpSessions.size > 20) {
+            // メモリ制限チェック
+            if (estimatedMemoryUsage > memoryLimit) {
+                cleanupOldSessions();
+            }
+            
+            // セッション数制限
+            if (tcpSessions.size > maxSessions) {
                 const oldestSession = sessionList.lastChild;
                 if (oldestSession) {
                     const oldestKey = Array.from(tcpSessions.keys()).find(key => 
                         tcpSessions.get(key) === oldestSession
                     );
                     if (oldestKey) {
-                        tcpSessions.delete(oldestKey);
-                        sessionMetadata.delete(oldestKey);
-                        sessionList.removeChild(oldestSession);
+                        removeSession(oldestKey);
                     }
                 }
             }
+            
+            // メモリ使用量表示を更新
+            updateMemoryDisplay();
             
             // ソートを適用
             sortSessions();
@@ -622,6 +721,85 @@
                     sessionList.appendChild(sessionElement);
                 }
             });
+        }
+
+        function estimatePacketMemoryUsage(packet) {
+            // パケット1個あたりの概算メモリ使用量（MB）
+            const baseSize = 0.001; // 1KB程度
+            const infoSize = packet.info.length * 0.000001; // 文字数に応じて
+            return baseSize + infoSize;
+        }
+
+        function updateMemoryDisplay() {
+            memoryStatusEl.textContent = `メモリ: ${estimatedMemoryUsage.toFixed(1)}MB`;
+            
+            // メモリ使用量が制限に近づいたら警告色
+            const memoryLimit = parseInt(document.getElementById('memoryLimit').value) || 50;
+            if (estimatedMemoryUsage > memoryLimit * 0.8) {
+                memoryStatusEl.style.color = '#e53e3e';
+            } else if (estimatedMemoryUsage > memoryLimit * 0.6) {
+                memoryStatusEl.style.color = '#ed8936';
+            } else {
+                memoryStatusEl.style.color = '#718096';
+            }
+        }
+
+        function removeSession(sessionKey) {
+            const sessionElement = tcpSessions.get(sessionKey);
+            if (sessionElement) {
+                // セッションのメモリ使用量を概算で削除
+                const metadata = sessionMetadata.get(sessionKey);
+                if (metadata) {
+                    estimatedMemoryUsage -= metadata.packetCount * 0.001;
+                }
+                
+                tcpSessions.delete(sessionKey);
+                sessionMetadata.delete(sessionKey);
+                sessionList.removeChild(sessionElement);
+            }
+        }
+
+        function cleanupOldSessions() {
+            // 古いセッションから削除
+            const sessions = Array.from(sessionMetadata.entries())
+                .sort(([,a], [,b]) => a.lastSeen - b.lastSeen); // 古い順
+            
+            const memoryLimit = parseInt(document.getElementById('memoryLimit').value) || 50;
+            
+            while (estimatedMemoryUsage > memoryLimit * 0.7 && sessions.length > 0) {
+                const [oldestKey] = sessions.shift();
+                removeSession(oldestKey);
+            }
+        }
+
+        async function applyTsharkFilter() {
+            const filterValue = document.getElementById('tsharkFilter').value.trim();
+            
+            try {
+                const response = await fetch('/api/filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        tshark_filter: filterValue || null
+                    })
+                });
+                
+                if (response.ok) {
+                    console.log('フィルタが適用されました:', filterValue);
+                    // セッションリストをクリア（新しいフィルタで再開）
+                    sessionList.innerHTML = '';
+                    tcpSessions.clear();
+                    sessionMetadata.clear();
+                    estimatedMemoryUsage = 0;
+                    updateMemoryDisplay();
+                } else {
+                    console.error('フィルタの適用に失敗しました');
+                }
+            } catch (error) {
+                console.error('フィルタ適用エラー:', error);
+            }
         }
 
         function addPacketToLog(packet) {
@@ -724,12 +902,24 @@
             tcpSessions.clear();
             sessionMetadata.clear();
             packetCount = 0;
+            estimatedMemoryUsage = 0;
             totalPacketsEl.textContent = '0';
+            updateMemoryDisplay();
         });
 
         // ソート機能のイベントリスナー
         document.getElementById('sortSessions').addEventListener('change', function() {
             sortSessions();
+        });
+
+        // フィルタ適用ボタンのイベントリスナー
+        applyFilterBtn.addEventListener('click', applyTsharkFilter);
+
+        // Enterキーでフィルタ適用
+        document.getElementById('tsharkFilter').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                applyTsharkFilter();
+            }
         });
 
         // 統計情報を5秒ごとに更新

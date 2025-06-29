@@ -1,5 +1,6 @@
 use axum::{
     extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
+    http::StatusCode,
     response::{Html, Response},
     routing::{get, Router},
     Json,
@@ -38,7 +39,13 @@ struct PacketStats {
     top_destinations: HashMap<String, u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FilterConfig {
+    tshark_filter: Option<String>,
+}
+
 type SharedStats = Arc<Mutex<PacketStats>>;
+type SharedFilter = Arc<Mutex<FilterConfig>>;
 type Broadcaster = broadcast::Sender<PacketInfo>;
 
 #[tokio::main]
@@ -52,26 +59,32 @@ async fn main() {
         top_destinations: HashMap::new(),
     }));
 
+    let filter = Arc::new(Mutex::new(FilterConfig {
+        tshark_filter: None,
+    }));
+
     let (tx, _rx) = broadcast::channel(1000);
 
     // パケットキャプチャタスクを開始
     let stats_clone = stats.clone();
+    let filter_clone = filter.clone();
     let tx_clone = tx.clone();
     tokio::spawn(async move {
-        capture_packets(stats_clone, tx_clone).await;
+        capture_packets(stats_clone, filter_clone, tx_clone).await;
     });
 
     // Webサーバーを設定
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/api/stats", get(stats_handler))
+        .route("/api/filter", axum::routing::post(set_filter_handler))
         .route("/ws", get(websocket_handler))
         .nest_service("/static", ServeDir::new("static"))
         .layer(
             ServiceBuilder::new()
                 .layer(CorsLayer::permissive())
         )
-        .with_state((stats, tx));
+        .with_state((stats, filter, tx));
 
     info!("パケット可視化サーバーを起動中... http://localhost:3000");
     
@@ -79,23 +92,38 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn capture_packets(stats: SharedStats, tx: Broadcaster) {
+async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcaster) {
     info!("パケットキャプチャを開始");
 
-    // tsharkコマンドでパケットキャプチャ
+    // 基本的なtsharkコマンド引数
+    let mut args = vec![
+        "-i", "any",  // 全インターフェース
+        "-T", "fields",
+        "-e", "frame.time_epoch",
+        "-e", "ip.src",
+        "-e", "ip.dst", 
+        "-e", "frame.protocols",
+        "-e", "frame.len",
+        "-e", "_ws.col.Info",
+        "-E", "separator=|",
+        "-l"  // 行バッファリング
+    ];
+
+    // フィルタが設定されている場合は追加
+    let filter_string = {
+        let filter_guard = filter.lock().unwrap();
+        filter_guard.tshark_filter.clone()
+    };
+
+    if let Some(ref filter_str) = filter_string {
+        if !filter_str.trim().is_empty() {
+            args.push("-f");
+            args.push(filter_str);
+        }
+    }
+
     let cmd = TokioCommand::new("tshark")
-        .args(&[
-            "-i", "any",  // 全インターフェース
-            "-T", "fields",
-            "-e", "frame.time_epoch",
-            "-e", "ip.src",
-            "-e", "ip.dst", 
-            "-e", "frame.protocols",
-            "-e", "frame.len",
-            "-e", "_ws.col.Info",
-            "-E", "separator=|",
-            "-l"  // 行バッファリング
-        ])
+        .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
@@ -160,14 +188,24 @@ async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
 }
 
-async fn stats_handler(State((stats, _)): State<(SharedStats, Broadcaster)>) -> Json<PacketStats> {
+async fn stats_handler(State((stats, _, _)): State<(SharedStats, SharedFilter, Broadcaster)>) -> Json<PacketStats> {
     let stats = stats.lock().unwrap();
     Json(stats.clone())
 }
 
+async fn set_filter_handler(
+    State((_, filter, _)): State<(SharedStats, SharedFilter, Broadcaster)>,
+    Json(new_filter): Json<FilterConfig>,
+) -> Result<Json<FilterConfig>, StatusCode> {
+    let mut filter_guard = filter.lock().unwrap();
+    *filter_guard = new_filter.clone();
+    info!("フィルタが更新されました: {:?}", new_filter.tshark_filter);
+    Ok(Json(new_filter))
+}
+
 async fn websocket_handler(
     ws: WebSocketUpgrade,
-    State((_, tx)): State<(SharedStats, Broadcaster)>,
+    State((_, _, tx)): State<(SharedStats, SharedFilter, Broadcaster)>,
 ) -> Response {
     ws.on_upgrade(move |socket| websocket_task(socket, tx))
 }

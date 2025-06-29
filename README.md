@@ -73,7 +73,7 @@
 2. Click "Start" button to begin packet capture
 3. Real-time packet information will be displayed
 4. Statistics are automatically updated
-5. Frames without IP information will show `Unknown` for address fields
+5. IPv6 and ARP addresses are also detected. If no address information is present, `Unknown` will be displayed.
 
 ## Configuration Options
 

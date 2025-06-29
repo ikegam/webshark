@@ -361,6 +361,46 @@
             background: #c53030;
         }
 
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            background: #2d3748;
+            padding: 0.5rem 0;
+        }
+
+        .tab-btn {
+            background: #4a5568;
+            border: none;
+            color: white;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .tab-btn.active {
+            background: #4299e1;
+        }
+
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        #timeChart {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto 2rem;
+        }
+
+        #chordDiagram {
+            display: block;
+            margin: 0 auto;
+        }
+
         /* ⚡ ULTRAfast loading skeleton */
         .loading-skeleton {
             animation: skeleton-loading 1.5s infinite;
@@ -401,6 +441,12 @@
         <p>Real-time Network Traffic Monitoring</p>
     </div>
 
+    <div class="tabs">
+        <button class="tab-btn active" id="topTab">トップビュー</button>
+        <button class="tab-btn" id="vizTab">可視化ビュー</button>
+    </div>
+
+    <div id="topView" class="view active">
     <div class="container">
         <div class="controls">
             <button class="btn" id="startBtn">Start</button>
@@ -518,9 +564,19 @@
             <div id="flowList"></div>
         </div>
     </div>
+    </div>
+
+    <div id="vizView" class="view">
+        <div class="container">
+            <canvas id="timeChart" height="300"></canvas>
+            <svg id="chordDiagram" width="600" height="600"></svg>
+        </div>
+    </div>
 
     <!-- pako.js for decompression -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
         let ws = null;
         let isRunning = false;
@@ -541,6 +597,40 @@
         let cachedElements = new Map(); // DOM element cache
         let shouldSort = false; // whether sorting is needed
 
+        const topTab = document.getElementById('topTab');
+        const vizTab = document.getElementById('vizTab');
+        const topView = document.getElementById('topView');
+        const vizView = document.getElementById('vizView');
+
+        // Chart.js time series
+        const timeCtx = document.getElementById('timeChart').getContext('2d');
+        const timeChart = new Chart(timeCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Bytes per second',
+                    data: [],
+                    borderColor: '#4299e1',
+                    backgroundColor: 'rgba(66,153,225,0.3)',
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                animation: false,
+                scales: { x: { display: true }, y: { beginAtZero: true } }
+            }
+        });
+
+        const trafficSeries = new Map();
+
+        // D3 chord diagram data
+        const chordSvg = d3.select('#chordDiagram');
+        const hostIndex = new Map();
+        let hosts = [];
+        let matrix = [];
+
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
         const clearBtn = document.getElementById('clearBtn');
@@ -552,6 +642,20 @@
         const memoryStatusEl = document.getElementById('memoryStatus');
         const applyFilterBtn = document.getElementById('applyFilterBtn');
         const netmaskSelect = document.getElementById('netmask');
+
+        topTab.addEventListener('click', () => {
+            topTab.classList.add('active');
+            vizTab.classList.remove('active');
+            topView.classList.add('active');
+            vizView.classList.remove('active');
+        });
+
+        vizTab.addEventListener('click', () => {
+            vizTab.classList.add('active');
+            topTab.classList.remove('active');
+            vizView.classList.add('active');
+            topView.classList.remove('active');
+        });
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -782,6 +886,7 @@
                 return; // skip localhost traffic
             }
             addPacketToFlow(packet); // new smart flow handling
+            updateVisualization(packet);
         }
 
         // 🚀 ULTRA smart packet processing
@@ -1255,6 +1360,91 @@
                 container.appendChild(item);
             });
         }
+
+        function updateVisualization(packet) {
+            // update time series
+            const sec = Math.floor(packet.timestamp);
+            trafficSeries.set(sec, (trafficSeries.get(sec) || 0) + packet.length);
+
+            updateChordTraffic(packet.src_ip, packet.dst_ip, packet.length);
+        }
+
+        function refreshTimeChart() {
+            const now = Math.floor(Date.now() / 1000);
+            const windowSize = 60;
+            const labels = [];
+            const data = [];
+            for (let i = windowSize - 1; i >= 0; i--) {
+                const t = now - i;
+                labels.push(new Date(t * 1000).toLocaleTimeString());
+                data.push(trafficSeries.get(t) || 0);
+            }
+            timeChart.data.labels = labels;
+            timeChart.data.datasets[0].data = data;
+            timeChart.update('none');
+        }
+
+        function updateChordTraffic(src, dst, bytes) {
+            let i = hostIndex.get(src);
+            if (i === undefined) {
+                i = hosts.length;
+                hostIndex.set(src, i);
+                hosts.push(src);
+                matrix.forEach(row => row.push(0));
+                matrix.push(new Array(hosts.length).fill(0));
+            }
+            let j = hostIndex.get(dst);
+            if (j === undefined) {
+                j = hosts.length;
+                hostIndex.set(dst, j);
+                hosts.push(dst);
+                matrix.forEach(row => row.push(0));
+                matrix.push(new Array(hosts.length).fill(0));
+            }
+            matrix[i][j] += bytes;
+            matrix[j][i] += bytes;
+        }
+
+        function drawChordDiagram() {
+            const width = 600;
+            const height = 600;
+            const outerRadius = Math.min(width, height) / 2 - 40;
+            const innerRadius = outerRadius - 20;
+
+            const chord = d3.chord().padAngle(0.05)(matrix);
+            const arc = d3.arc().innerRadius(innerRadius).outerRadius(outerRadius);
+            const link = d3.linkRadial().angle(d => d.angle).radius(innerRadius);
+            const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+            chordSvg.attr('viewBox', [-width / 2, -height / 2, width, height]);
+            chordSvg.selectAll('*').remove();
+
+            const g = chordSvg.append('g');
+
+            g.append('g')
+                .selectAll('path')
+                .data(chord.groups)
+                .join('path')
+                .attr('fill', d => color(d.index))
+                .attr('d', arc);
+
+            g.append('g')
+                .attr('fill', 'none')
+                .selectAll('path')
+                .data(chord)
+                .join('path')
+                .attr('stroke', d => color(d.source.index))
+                .attr('stroke-width', d => 1 + Math.sqrt(d.source.value))
+                .attr('d', d => link({
+                    source: { angle: (d.source.startAngle + d.source.endAngle) / 2, radius: innerRadius },
+                    target: { angle: (d.target.startAngle + d.target.endAngle) / 2, radius: innerRadius }
+                }));
+        }
+
+        setInterval(() => {
+            refreshTimeChart();
+            drawChordDiagram();
+        }, 1000);
 
         startBtn.addEventListener('click', function() {
             if (!isRunning) {

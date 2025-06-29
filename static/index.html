@@ -68,8 +68,6 @@
 
         .packet-log {
             grid-column: 1 / -1;
-            max-height: 400px;
-            overflow-y: auto;
             background: rgba(255, 255, 255, 0.95);
             border-radius: 15px;
             padding: 1.5rem;
@@ -179,8 +177,6 @@
 
         .session-packets {
             padding: 0 1rem 1rem 1rem;
-            max-height: 300px;
-            overflow-y: auto;
         }
 
         .session-packets.collapsed {
@@ -266,6 +262,31 @@
             color: #4a5568;
         }
 
+        .sort-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+
+        .sort-controls label {
+            font-weight: 500;
+            color: #4a5568;
+            white-space: nowrap;
+        }
+
+        .sort-controls select {
+            padding: 0.5rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            background: white;
+            color: #4a5568;
+            cursor: pointer;
+        }
+
         .btn {
             padding: 0.75rem 1.5rem;
             border: none;
@@ -318,6 +339,15 @@
                     <input type="checkbox" id="hideLocalhost" checked>
                     <label for="hideLocalhost">localhost通信を非表示</label>
                 </div>
+            </div>
+            
+            <div class="sort-controls">
+                <label for="sortSessions">セッション順:</label>
+                <select id="sortSessions">
+                    <option value="recent">新しい順</option>
+                    <option value="traffic">トラフィック量順</option>
+                    <option value="alphabetical">アルファベット順</option>
+                </select>
             </div>
         </div>
 
@@ -381,6 +411,7 @@
         let isRunning = false;
         let packetCount = 0;
         let tcpSessions = new Map(); // TCPセッション管理
+        let sessionMetadata = new Map(); // セッションのメタデータ（パケット数、最終更新時刻など）
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -472,9 +503,9 @@
                             </span>
                         </div>
                     </div>
-                    <div class="session-toggle" id="${sessionDiv.id}-toggle">▼</div>
+                    <div class="session-toggle collapsed" id="${sessionDiv.id}-toggle">▶</div>
                 </div>
-                <div class="session-packets" id="${sessionDiv.id}-packets">
+                <div class="session-packets collapsed" id="${sessionDiv.id}-packets">
                 </div>
             `;
             
@@ -495,6 +526,15 @@
                 // 新しいセッションを作成
                 sessionElement = createSessionElement(sessionKey, packet);
                 tcpSessions.set(sessionKey, sessionElement);
+                
+                // メタデータを初期化
+                sessionMetadata.set(sessionKey, {
+                    packetCount: 0,
+                    firstSeen: packet.timestamp,
+                    lastSeen: packet.timestamp,
+                    sessionKey: sessionKey
+                });
+                
                 sessionList.insertBefore(sessionElement, sessionList.firstChild);
             }
             
@@ -512,10 +552,13 @@
             
             packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
             
-            // パケット数を更新
+            // パケット数とメタデータを更新
+            const metadata = sessionMetadata.get(sessionKey);
+            metadata.packetCount++;
+            metadata.lastSeen = packet.timestamp;
+            
             const countElement = sessionElement.querySelector(`#${sessionElement.id}-count`);
-            const currentCount = parseInt(countElement.textContent) + 1;
-            countElement.textContent = currentCount;
+            countElement.textContent = metadata.packetCount;
             
             // 最大50個のパケットを保持
             while (packetsContainer.children.length > 50) {
@@ -531,10 +574,14 @@
                     );
                     if (oldestKey) {
                         tcpSessions.delete(oldestKey);
+                        sessionMetadata.delete(oldestKey);
                         sessionList.removeChild(oldestSession);
                     }
                 }
             }
+            
+            // ソートを適用
+            sortSessions();
         }
 
         function toggleSession(sessionId) {
@@ -550,6 +597,31 @@
                 toggleIcon.classList.add('collapsed');
                 toggleIcon.textContent = '▶';
             }
+        }
+
+        function sortSessions() {
+            const sortOption = document.getElementById('sortSessions').value;
+            const sessions = Array.from(sessionMetadata.entries());
+            
+            sessions.sort(([keyA, metaA], [keyB, metaB]) => {
+                switch (sortOption) {
+                    case 'traffic':
+                        return metaB.packetCount - metaA.packetCount; // 降順
+                    case 'alphabetical':
+                        return keyA.localeCompare(keyB); // 昇順
+                    case 'recent':
+                    default:
+                        return metaB.lastSeen - metaA.lastSeen; // 降順（新しい順）
+                }
+            });
+            
+            // セッションリストを再配置
+            sessions.forEach(([sessionKey, metadata]) => {
+                const sessionElement = tcpSessions.get(sessionKey);
+                if (sessionElement && sessionElement.parentNode) {
+                    sessionList.appendChild(sessionElement);
+                }
+            });
         }
 
         function addPacketToLog(packet) {
@@ -650,8 +722,14 @@
         clearBtn.addEventListener('click', function() {
             sessionList.innerHTML = '';
             tcpSessions.clear();
+            sessionMetadata.clear();
             packetCount = 0;
             totalPacketsEl.textContent = '0';
+        });
+
+        // ソート機能のイベントリスナー
+        document.getElementById('sortSessions').addEventListener('change', function() {
+            sortSessions();
         });
 
         // 統計情報を5秒ごとに更新

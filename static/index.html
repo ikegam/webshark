@@ -127,6 +127,82 @@
             font-weight: 600;
         }
 
+        .tcp-session {
+            margin-bottom: 1rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            background: #f7fafc;
+        }
+
+        .session-header {
+            padding: 1rem;
+            background: #edf2f7;
+            border-radius: 8px 8px 0 0;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+            transition: background-color 0.2s ease;
+        }
+
+        .session-header:hover {
+            background: #e2e8f0;
+        }
+
+        .session-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .session-title {
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 1rem;
+        }
+
+        .session-subtitle {
+            font-size: 0.85rem;
+            color: #718096;
+            margin-top: 0.25rem;
+        }
+
+        .session-toggle {
+            font-size: 1.2rem;
+            color: #4a5568;
+            transition: transform 0.2s ease;
+        }
+
+        .session-toggle.collapsed {
+            transform: rotate(-90deg);
+        }
+
+        .session-packets {
+            padding: 0 1rem 1rem 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .session-packets.collapsed {
+            display: none;
+        }
+
+        .session-packet {
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            background: white;
+            border-radius: 4px;
+            border-left: 3px solid #4299e1;
+            font-size: 0.85rem;
+        }
+
+        .session-stats {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.75rem;
+            color: #718096;
+        }
+
         .status {
             display: flex;
             align-items: center;
@@ -295,8 +371,8 @@
         </div>
 
         <div class="card packet-log">
-            <h3>📦 リアルタイムパケットログ</h3>
-            <div id="packetList"></div>
+            <h3>📦 TCPセッション別パケットログ</h3>
+            <div id="sessionList"></div>
         </div>
     </div>
 
@@ -304,6 +380,7 @@
         let ws = null;
         let isRunning = false;
         let packetCount = 0;
+        let tcpSessions = new Map(); // TCPセッション管理
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -312,7 +389,7 @@
         const statusText = document.getElementById('statusText');
         const totalPacketsEl = document.getElementById('totalPackets');
         const connectionStatusEl = document.getElementById('connectionStatus');
-        const packetList = document.getElementById('packetList');
+        const sessionList = document.getElementById('sessionList');
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -330,7 +407,7 @@
 
             ws.onmessage = function(event) {
                 const packet = JSON.parse(event.data);
-                addPacketToLog(packet);
+                addPacketToSession(packet);
                 packetCount++;
                 totalPacketsEl.textContent = packetCount.toLocaleString();
             };
@@ -356,6 +433,123 @@
                    localhostAddresses.includes(packet.dst_ip) ||
                    (packet.src_ip === packet.dst_ip && 
                     (packet.src_ip.startsWith('127.') || packet.src_ip.startsWith('::1')));
+        }
+
+        function extractSessionKey(packet) {
+            // TCPセッションを識別するキーを生成
+            // ポート情報を含む場合とIPアドレスのみの場合を考慮
+            let srcInfo = packet.src_ip;
+            let dstInfo = packet.dst_ip;
+            
+            // ポート情報を抽出（例: "443 → 55706"）
+            const portMatch = packet.info.match(/(\d+)\s*→\s*(\d+)/);
+            if (portMatch) {
+                srcInfo = `${packet.src_ip}:${portMatch[1]}`;
+                dstInfo = `${packet.dst_ip}:${portMatch[2]}`;
+            }
+            
+            // セッションキーを正規化（小さい方を前に）
+            return srcInfo < dstInfo ? `${srcInfo}⇄${dstInfo}` : `${dstInfo}⇄${srcInfo}`;
+        }
+
+        function createSessionElement(sessionKey, firstPacket) {
+            const sessionDiv = document.createElement('div');
+            sessionDiv.className = 'tcp-session';
+            sessionDiv.id = `session-${sessionKey.replace(/[^a-zA-Z0-9]/g, '-')}`;
+            
+            const [endpoint1, endpoint2] = sessionKey.split('⇄');
+            const timestamp = new Date(firstPacket.timestamp * 1000).toLocaleTimeString();
+            
+            sessionDiv.innerHTML = `
+                <div class="session-header" onclick="toggleSession('${sessionDiv.id}')">
+                    <div class="session-info">
+                        <div class="session-title">${endpoint1} ⇄ ${endpoint2}</div>
+                        <div class="session-subtitle">
+                            <span class="session-stats">
+                                <span>開始: ${timestamp}</span>
+                                <span>パケット: <span id="${sessionDiv.id}-count">1</span></span>
+                                <span>プロトコル: ${firstPacket.protocol}</span>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="session-toggle" id="${sessionDiv.id}-toggle">▼</div>
+                </div>
+                <div class="session-packets" id="${sessionDiv.id}-packets">
+                </div>
+            `;
+            
+            return sessionDiv;
+        }
+
+        function addPacketToSession(packet) {
+            // localhostフィルタリング機能
+            const hideLocalhost = document.getElementById('hideLocalhost').checked;
+            if (hideLocalhost && isLocalhostTraffic(packet)) {
+                return; // localhost通信は表示しない
+            }
+
+            const sessionKey = extractSessionKey(packet);
+            let sessionElement = tcpSessions.get(sessionKey);
+            
+            if (!sessionElement) {
+                // 新しいセッションを作成
+                sessionElement = createSessionElement(sessionKey, packet);
+                tcpSessions.set(sessionKey, sessionElement);
+                sessionList.insertBefore(sessionElement, sessionList.firstChild);
+            }
+            
+            // パケットをセッションに追加
+            const packetsContainer = sessionElement.querySelector('.session-packets');
+            const packetDiv = document.createElement('div');
+            packetDiv.className = 'session-packet';
+            
+            const timestamp = new Date(packet.timestamp * 1000).toLocaleTimeString();
+            packetDiv.innerHTML = `
+                <div><strong>${packet.src_ip} → ${packet.dst_ip}</strong></div>
+                <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
+                <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
+            `;
+            
+            packetsContainer.insertBefore(packetDiv, packetsContainer.firstChild);
+            
+            // パケット数を更新
+            const countElement = sessionElement.querySelector(`#${sessionElement.id}-count`);
+            const currentCount = parseInt(countElement.textContent) + 1;
+            countElement.textContent = currentCount;
+            
+            // 最大50個のパケットを保持
+            while (packetsContainer.children.length > 50) {
+                packetsContainer.removeChild(packetsContainer.lastChild);
+            }
+            
+            // セッション数制限（最大20セッション）
+            if (tcpSessions.size > 20) {
+                const oldestSession = sessionList.lastChild;
+                if (oldestSession) {
+                    const oldestKey = Array.from(tcpSessions.keys()).find(key => 
+                        tcpSessions.get(key) === oldestSession
+                    );
+                    if (oldestKey) {
+                        tcpSessions.delete(oldestKey);
+                        sessionList.removeChild(oldestSession);
+                    }
+                }
+            }
+        }
+
+        function toggleSession(sessionId) {
+            const packetsContainer = document.getElementById(`${sessionId}-packets`);
+            const toggleIcon = document.getElementById(`${sessionId}-toggle`);
+            
+            if (packetsContainer.classList.contains('collapsed')) {
+                packetsContainer.classList.remove('collapsed');
+                toggleIcon.classList.remove('collapsed');
+                toggleIcon.textContent = '▼';
+            } else {
+                packetsContainer.classList.add('collapsed');
+                toggleIcon.classList.add('collapsed');
+                toggleIcon.textContent = '▶';
+            }
         }
 
         function addPacketToLog(packet) {
@@ -454,7 +648,8 @@
         });
 
         clearBtn.addEventListener('click', function() {
-            packetList.innerHTML = '';
+            sessionList.innerHTML = '';
+            tcpSessions.clear();
             packetCount = 0;
             totalPacketsEl.textContent = '0';
         });

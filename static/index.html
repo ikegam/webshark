@@ -580,7 +580,7 @@
 
         <div id="vizView" class="view">
         <div class="container viz-container">
-            <svg id="chordDiagram" width="600" height="600"></svg>
+            <svg id="chordDiagram" width="800" height="800"></svg>
             <canvas id="timeChart" height="300"></canvas>
             <canvas id="totalTrafficChart" height="300"></canvas>
         </div>
@@ -1465,8 +1465,9 @@
         }
 
         function drawChordDiagram() {
-            const width = 600;
-            const height = 600;
+            const width = 800;
+            const height = 800;
+            const margin = 100;
             const outerRadius = Math.min(width, height) / 2 - 40;
             const innerRadius = outerRadius - 20;
 
@@ -1475,7 +1476,7 @@
             const link = d3.linkRadial().angle(d => d.angle).radius(innerRadius);
             const color = d3.scaleOrdinal(d3.schemeCategory10);
 
-            chordSvg.attr('viewBox', [-width / 2, -height / 2, width, height]);
+            chordSvg.attr('viewBox', [-(width / 2 + margin), -(height / 2 + margin), width + margin * 2, height + margin * 2]);
             chordSvg.selectAll('*').remove();
 
             const g = chordSvg.append('g');

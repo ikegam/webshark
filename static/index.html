@@ -1137,32 +1137,29 @@
         }
         
         function checkLimits() {
-            // perform periodic check
-            if (Math.random() < 0.01) { // check with 1% probability
-                const maxSessions = parseInt(getCachedElement('maxSessions').value) || 20;
-                const memoryLimit = parseInt(getCachedElement('memoryLimit').value) || 50;
-                
-                if (estimatedMemoryUsage > memoryLimit) {
-                    cleanupOldFlows();
-                }
-                
-                const totalFlows = groupMetadata.size;
-                if (totalFlows > maxSessions) {
-                    const oldestFlow = flowList.lastChild;
-                    if (oldestFlow) {
-                        const oldestKey = Array.from(groupMetadata.keys()).find(key => {
-                            const metadata = groupMetadata.get(key);
-                            return metadata && smartGroups[metadata.type].get && 
-                                   smartGroups[metadata.type].get(metadata.key) === oldestFlow;
-                        });
-                        if (oldestKey) {
-                            removeFlow(oldestKey);
-                        }
+            const maxSessions = parseInt(getCachedElement('maxSessions').value) || 20;
+            const memoryLimit = parseInt(getCachedElement('memoryLimit').value) || 50;
+
+            if (estimatedMemoryUsage > memoryLimit) {
+                cleanupOldFlows();
+            }
+
+            const totalFlows = groupMetadata.size;
+            if (totalFlows > maxSessions) {
+                const oldestFlow = flowList.lastChild;
+                if (oldestFlow) {
+                    const oldestKey = Array.from(groupMetadata.keys()).find(key => {
+                        const metadata = groupMetadata.get(key);
+                        return metadata && smartGroups[metadata.type].get &&
+                               smartGroups[metadata.type].get(metadata.key) === oldestFlow;
+                    });
+                    if (oldestKey) {
+                        removeFlow(oldestKey);
                     }
                 }
-                
-                updateMemoryDisplay();
             }
+
+            updateMemoryDisplay();
         }
 
         function scheduleBatchUpdate() {
@@ -1262,6 +1259,7 @@
                 smartGroups[type].delete(key);
                 flowList.removeChild(flowElement);
                 groupMetadata.delete(metadataKey);
+                rebuildHostMatrix();
             }
         }
 
@@ -1276,6 +1274,43 @@
                 const [oldestKey] = flows.shift();
                 removeFlow(oldestKey);
             }
+        }
+
+        function rebuildHostMatrix() {
+            hostIndex.clear();
+            hosts = [];
+            matrix = [];
+
+            const maxSessions = parseInt(getCachedElement('maxSessions').value) || 20;
+
+            const hostBytes = new Map();
+            groupMetadata.forEach(meta => {
+                const bytes = (meta.sentBytes || 0) + (meta.recvBytes || 0);
+                hostBytes.set(meta.endpointA, (hostBytes.get(meta.endpointA) || 0) + bytes);
+                hostBytes.set(meta.endpointB, (hostBytes.get(meta.endpointB) || 0) + bytes);
+            });
+
+            const sortedHosts = Array.from(hostBytes.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, maxSessions)
+                .map(([h]) => h);
+
+            sortedHosts.forEach((h, idx) => {
+                hostIndex.set(h, idx);
+                hosts.push(h);
+            });
+
+            matrix = Array.from({length: hosts.length}, () => new Array(hosts.length).fill(0));
+
+            groupMetadata.forEach(meta => {
+                const i = hostIndex.get(meta.endpointA);
+                const j = hostIndex.get(meta.endpointB);
+                if (i === undefined || j === undefined) return;
+
+                const bytes = (meta.sentBytes || 0) + (meta.recvBytes || 0);
+                matrix[i][j] += bytes;
+                matrix[j][i] += bytes;
+            });
         }
 
         async function applyTsharkFilter() {
@@ -1302,6 +1337,7 @@
                     groupMetadata.clear();
                     packetQueue.length = 0;
                     estimatedMemoryUsage = 0;
+                    rebuildHostMatrix();
                     updateMemoryDisplay();
                 } else {
                     console.error('Failed to apply filter');
@@ -1551,6 +1587,7 @@
             packetCount = 0;
             estimatedMemoryUsage = 0;
             totalPacketsEl.textContent = '0';
+            rebuildHostMatrix();
             updateMemoryDisplay();
         });
 

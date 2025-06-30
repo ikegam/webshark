@@ -1,14 +1,17 @@
 use axum::{
-    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, State},
+    Json,
+    extract::{
+        State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     http::StatusCode,
     response::{Html, Response},
-    routing::{get, Router},
-    Json,
+    routing::{Router, get},
 };
+use flate2::{Compression, write::GzEncoder};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use flate2::{write::GzEncoder, Compression};
 use std::io::Write;
 use std::{
     collections::HashMap,
@@ -38,8 +41,8 @@ struct PacketInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::extract::State;
     use axum::Json;
+    use axum::extract::State;
 
     #[test]
     fn test_parse_tshark_line_basic() {
@@ -53,6 +56,13 @@ mod tests {
         assert_eq!(packet.info, "Example");
     }
 
+    #[test]
+    fn test_parse_tshark_line_info_with_pipe() {
+        let line = "1616161616.123|192.168.0.1|192.168.0.2|||||eth:ip:tcp|60|Example|with|pipe";
+        let packet = parse_tshark_line(line).expect("packet parsed");
+        assert_eq!(packet.info, "Example|with|pipe");
+    }
+
     #[tokio::test]
     async fn test_set_filter_handler_updates_filter() {
         let stats = Arc::new(Mutex::new(PacketStats {
@@ -62,18 +72,25 @@ mod tests {
             top_destinations: HashMap::new(),
         }));
 
-        let filter = Arc::new(Mutex::new(FilterConfig { tshark_filter: None }));
+        let filter = Arc::new(Mutex::new(FilterConfig {
+            tshark_filter: None,
+        }));
         let (tx, _) = broadcast::channel(1);
         let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel();
 
-        let new_filter = FilterConfig { tshark_filter: Some("tcp".to_string()) };
+        let new_filter = FilterConfig {
+            tshark_filter: Some("tcp".to_string()),
+        };
         let state = State((stats, filter.clone(), tx, cmd_tx));
         let result = set_filter_handler(state, Json(new_filter.clone()))
             .await
             .expect("handler ok");
 
         assert_eq!(result.0.tshark_filter, Some("tcp".to_string()));
-        assert_eq!(filter.lock().unwrap().tshark_filter, Some("tcp".to_string()));
+        assert_eq!(
+            filter.lock().unwrap().tshark_filter,
+            Some("tcp".to_string())
+        );
         assert!(matches!(cmd_rx.try_recv(), Ok(CaptureCommand::Restart)));
     }
 }
@@ -94,10 +111,7 @@ fn get_local_ips() -> Vec<String> {
     if let Ok(output) = Command::new("hostname").arg("-I").output() {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            return stdout
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect();
+            return stdout.split_whitespace().map(|s| s.to_string()).collect();
         }
     }
     Vec::new()
@@ -177,29 +191,26 @@ async fn main() {
         .route("/api/filter", axum::routing::post(set_filter_handler))
         .route("/ws", get(websocket_handler))
         .nest_service("/static", ServeDir::new("static"))
-        .layer(
-            ServiceBuilder::new()
-                .layer(CorsLayer::permissive())
-        )
+        .layer(ServiceBuilder::new().layer(CorsLayer::permissive()))
         .with_state((stats, filter, tx, cmd_tx));
 
     info!("Starting packet visualization server... http://localhost:3000");
-    
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
 async fn capture_packets_manager(
-    stats: SharedStats, 
-    filter: SharedFilter, 
-    tx: Broadcaster, 
-    mut cmd_rx: mpsc::UnboundedReceiver<CaptureCommand>
+    stats: SharedStats,
+    filter: SharedFilter,
+    tx: Broadcaster,
+    mut cmd_rx: mpsc::UnboundedReceiver<CaptureCommand>,
 ) {
     info!("Starting packet capture manager");
-    
+
     loop {
         let capture_task = tokio::spawn(capture_packets(stats.clone(), filter.clone(), tx.clone()));
-        
+
         // Wait for restart command
         if let Some(CaptureCommand::Restart) = cmd_rx.recv().await {
             info!("Restarting packet capture...");
@@ -217,20 +228,33 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
 
     // Basic tshark command arguments
     let mut args = vec![
-        "-i", "any",  // All interfaces
-        "-T", "fields",
-        "-e", "frame.time_epoch",
-        "-e", "ip.src",
-        "-e", "ip.dst",
-        "-e", "ipv6.src",
-        "-e", "ipv6.dst",
-        "-e", "arp.src.proto_ipv4",
-        "-e", "arp.dst.proto_ipv4",
-        "-e", "frame.protocols",
-        "-e", "frame.len",
-        "-e", "_ws.col.Info",
-        "-E", "separator=|",
-        "-l"  // Line buffering
+        "-i",
+        "any", // All interfaces
+        "-T",
+        "fields",
+        "-e",
+        "frame.time_epoch",
+        "-e",
+        "ip.src",
+        "-e",
+        "ip.dst",
+        "-e",
+        "ipv6.src",
+        "-e",
+        "ipv6.dst",
+        "-e",
+        "arp.src.proto_ipv4",
+        "-e",
+        "arp.dst.proto_ipv4",
+        "-e",
+        "frame.protocols",
+        "-e",
+        "frame.len",
+        "-e",
+        "_ws.col.Info",
+        "-E",
+        "separator=|",
+        "-l", // Line buffering
     ];
 
     // Add filter if configured
@@ -272,7 +296,10 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
                 stats.total_packets += 1;
                 *stats.protocols.entry(packet.protocol.clone()).or_insert(0) += 1;
                 *stats.top_sources.entry(packet.src_ip.clone()).or_insert(0) += 1;
-                *stats.top_destinations.entry(packet.dst_ip.clone()).or_insert(0) += 1;
+                *stats
+                    .top_destinations
+                    .entry(packet.dst_ip.clone())
+                    .or_insert(0) += 1;
             }
 
             // Send to WebSocket clients
@@ -284,7 +311,9 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
 }
 
 fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
-    let parts: Vec<&str> = line.split('|').collect();
+    // Limit splitting to the first 9 separators to avoid breaking the info
+    // field if it contains the separator character.
+    let parts: Vec<&str> = line.splitn(10, '|').collect();
     if parts.len() < 10 {
         return None;
     }
@@ -348,7 +377,11 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         (base, sub_proto)
     };
     let length = parts[8].parse::<u32>().unwrap_or(0);
-    let info = if parts[9].is_empty() { "Unknown".to_string() } else { parts[9].to_string() };
+    let info = if parts[9].is_empty() {
+        "Unknown".to_string()
+    } else {
+        parts[9].to_string()
+    };
 
     Some(PacketInfo {
         timestamp,
@@ -365,7 +398,9 @@ async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
 }
 
-async fn stats_handler(State((stats, _, _, _)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>) -> Json<PacketStats> {
+async fn stats_handler(
+    State((stats, _, _, _)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>,
+) -> Json<PacketStats> {
     let stats = stats.lock().unwrap();
     Json(stats.clone())
 }
@@ -377,13 +412,13 @@ async fn set_filter_handler(
     let mut filter_guard = filter.lock().unwrap();
     *filter_guard = new_filter.clone();
     info!("Filter updated: {:?}", new_filter.tshark_filter);
-    
+
     // Restart packet capture
     if let Err(_) = cmd_tx.send(CaptureCommand::Restart) {
         error!("Failed to send capture restart command");
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
-    
+
     Ok(Json(new_filter))
 }
 
@@ -405,11 +440,7 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
         "protocols": PROTOCOLS,
         "local_ips": get_local_ips()
     });
-    if sender
-        .send(Message::Text(ctx.to_string()))
-        .await
-        .is_err()
-    {
+    if sender.send(Message::Text(ctx.to_string())).await.is_err() {
         return;
     }
 

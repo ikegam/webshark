@@ -30,11 +30,22 @@ struct PacketInfo {
     src_ip: String,
     dst_ip: String,
     protocol: String,
+    sub_protocol: Option<String>,
     length: u32,
     info: String,
 }
 
-const PROTOCOLS: [&str; 6] = ["TCP", "UDP", "ICMP", "ARP", "IPv6", "IP"];
+const PROTOCOLS: [&str; 9] = [
+    "TCP",
+    "UDP",
+    "ICMP",
+    "ARP",
+    "IPv6",
+    "IP",
+    "TLS",
+    "WEBSOCKET",
+    "QUIC",
+];
 
 fn get_local_ips() -> Vec<String> {
     if let Ok(output) = Command::new("hostname").arg("-I").output() {
@@ -55,6 +66,7 @@ struct PacketCompact {
     src_ip: String,
     dst_ip: String,
     proto: u8,
+    sub_proto: Option<String>,
     length: u32,
     info: String,
 }
@@ -256,14 +268,24 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         "Unknown".to_string()
     };
 
-    let protocol = if parts[7].is_empty() {
-        "Unknown".to_string()
+    let (protocol, sub_protocol) = if parts[7].is_empty() {
+        ("Unknown".to_string(), None)
     } else {
         // Extract actual protocol from protocol hierarchy (e.g. "sll:ethertype:ip:tcp" -> "tcp")
         let protocols: Vec<&str> = parts[7].split(':').collect();
-        
+
+        // Detect sub protocols like TLS, WebSocket and QUIC
+        let mut sub_proto: Option<String> = None;
+        if protocols.contains(&"tls") || protocols.contains(&"ssl") {
+            sub_proto = Some("TLS".to_string());
+        } else if protocols.contains(&"websocket") || protocols.contains(&"ws") {
+            sub_proto = Some("WEBSOCKET".to_string());
+        } else if protocols.contains(&"quic") {
+            sub_proto = Some("QUIC".to_string());
+        }
+
         // Priority: tcp, udp, icmp, arp, others
-        if protocols.contains(&"tcp") {
+        let base = if protocols.contains(&"tcp") {
             "TCP".to_string()
         } else if protocols.contains(&"udp") {
             "UDP".to_string()
@@ -278,7 +300,9 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         } else {
             // Use the last protocol (most specific)
             protocols.last().map_or("Unknown", |v| v).to_uppercase()
-        }
+        };
+
+        (base, sub_proto)
     };
     let length = parts[8].parse::<u32>().unwrap_or(0);
     let info = if parts[9].is_empty() { "Unknown".to_string() } else { parts[9].to_string() };
@@ -288,6 +312,7 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         src_ip,
         dst_ip,
         protocol,
+        sub_protocol,
         length,
         info,
     })
@@ -330,7 +355,7 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
     let (mut sender, mut receiver) = socket.split();
     let mut rx = tx.subscribe();
     let mut packet_buffer: Vec<PacketCompact> = Vec::new();
-    let mut last_flush = std::time::Instant::now();
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
     let ctx = serde_json::json!({
         "type": "ctx",
@@ -347,35 +372,50 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
 
     // Packet reception task (batch + compression)
     let packet_task = tokio::spawn(async move {
-        while let Ok(packet) = rx.recv().await {
-            let compact = PacketCompact {
-                timestamp: packet.timestamp,
-                src_ip: packet.src_ip,
-                dst_ip: packet.dst_ip,
-                proto: protocol_to_id(&packet.protocol),
-                length: packet.length,
-                info: packet.info,
-            };
-            packet_buffer.push(compact);
-            
-            // Batch send every 100ms or 50 packets
-            if packet_buffer.len() >= 50 || last_flush.elapsed() >= std::time::Duration::from_millis(100) {
-                if !packet_buffer.is_empty() {
-                    let batch_data = serde_json::to_vec(&packet_buffer).unwrap();
-
-                    // gzip compression
-                    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-                    encoder.write_all(&batch_data).unwrap();
-                    let compressed = encoder.finish().unwrap();
-                    
-                    if sender.send(Message::Binary(compressed)).await.is_err() {
-                        break;
+        loop {
+            tokio::select! {
+                result = rx.recv() => {
+                    match result {
+                        Ok(packet) => {
+                            let compact = PacketCompact {
+                                timestamp: packet.timestamp,
+                                src_ip: packet.src_ip,
+                                dst_ip: packet.dst_ip,
+                                proto: protocol_to_id(&packet.protocol),
+                                sub_proto: packet.sub_protocol,
+                                length: packet.length,
+                                info: packet.info,
+                            };
+                            packet_buffer.push(compact);
+                        },
+                        Err(_) => break,
                     }
-                    
-                    packet_buffer.clear();
-                    last_flush = std::time::Instant::now();
+                },
+                _ = interval.tick() => {
+                    if !packet_buffer.is_empty() {
+                        let batch_data = serde_json::to_vec(&packet_buffer).unwrap();
+
+                        // gzip compression
+                        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+                        encoder.write_all(&batch_data).unwrap();
+                        let compressed = encoder.finish().unwrap();
+
+                        if sender.send(Message::Binary(compressed)).await.is_err() {
+                            break;
+                        }
+
+                        packet_buffer.clear();
+                    }
                 }
             }
+        }
+        // Flush remaining packets
+        if !packet_buffer.is_empty() {
+            let batch_data = serde_json::to_vec(&packet_buffer).unwrap();
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+            encoder.write_all(&batch_data).unwrap();
+            let compressed = encoder.finish().unwrap();
+            let _ = sender.send(Message::Binary(compressed)).await;
         }
     });
 

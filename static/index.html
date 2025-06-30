@@ -363,23 +363,193 @@
 
         .tabs {
             display: flex;
-            gap: 1rem;
+            gap: 0;
             justify-content: center;
             background: #2d3748;
             padding: 0.5rem 0;
+            position: relative;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .tabs::-webkit-scrollbar {
+            display: none;
         }
 
         .tab-btn {
-            background: #4a5568;
+            background: transparent;
             border: none;
-            color: white;
-            padding: 0.5rem 1rem;
+            color: #a0aec0;
+            padding: 0.75rem 1.5rem;
             cursor: pointer;
-            border-radius: 4px;
+            border-radius: 8px 8px 0 0;
+            transition: all 0.3s ease;
+            position: relative;
+            white-space: nowrap;
+            font-weight: 500;
+            font-size: 0.95rem;
+            min-width: 140px;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+
+        .tab-btn:hover {
+            background: #4a5568;
+            color: #e2e8f0;
+            transform: translateY(-2px);
         }
 
         .tab-btn.active {
             background: #4299e1;
+            color: white;
+            box-shadow: 0 4px 12px rgba(66, 153, 225, 0.4);
+        }
+
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #4299e1, #63b3ed);
+            border-radius: 2px;
+        }
+
+        .tab-badge {
+            background: #e53e3e;
+            color: white;
+            font-size: 0.7rem;
+            padding: 0.2rem 0.4rem;
+            border-radius: 10px;
+            font-weight: 600;
+            min-width: 18px;
+            text-align: center;
+            animation: pulse 2s infinite;
+        }
+
+        .tab-badge.zero {
+            background: #718096;
+            animation: none;
+        }
+
+        .tab-icon {
+            font-size: 1.1rem;
+        }
+
+        .tab-content {
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+        }
+
+        .tab-content.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .tab-shortcuts {
+            position: absolute;
+            top: 0.5rem;
+            right: 1rem;
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .shortcut-hint {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            color: #a0aec0;
+        }
+
+        .search-container {
+            position: relative;
+            margin: 1rem 0;
+            max-width: 400px;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.75rem 1rem 0.75rem 2.5rem;
+            border: 2px solid #4a5568;
+            border-radius: 8px;
+            background: #2d3748;
+            color: #e2e8f0;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 1rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #a0aec0;
+            font-size: 1rem;
+        }
+
+        .tab-context-menu {
+            position: absolute;
+            background: #2d3748;
+            border: 1px solid #4a5568;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            padding: 0.5rem 0;
+            z-index: 1000;
+            min-width: 180px;
+            display: none;
+        }
+
+        .context-menu-item {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            color: #e2e8f0;
+            transition: background 0.2s ease;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .context-menu-item:hover {
+            background: #4a5568;
+        }
+
+        .context-menu-item.danger {
+            color: #fc8181;
+        }
+
+        .context-menu-item.danger:hover {
+            background: #742a2a;
+        }
+
+        @media (max-width: 768px) {
+            .tabs {
+                padding: 0.25rem 0;
+            }
+            
+            .tab-btn {
+                padding: 0.5rem 1rem;
+                min-width: 100px;
+                font-size: 0.85rem;
+            }
+            
+            .tab-shortcuts {
+                display: none;
+            }
         }
 
         .view {
@@ -388,6 +558,27 @@
 
         .view.active {
             display: block;
+        }
+
+        /* Enhanced performance optimizations */
+        .tab-btn {
+            will-change: transform, background-color;
+        }
+
+        .tab-content {
+            will-change: opacity, transform;
+        }
+
+        /* Focus indicators for accessibility */
+        .tab-btn:focus {
+            outline: 2px solid #4299e1;
+            outline-offset: 2px;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
         }
 
         #vizView .viz-container {
@@ -464,13 +655,47 @@
         <p>Real-time Network Traffic Monitoring</p>
     </div>
 
-    <div class="tabs">
-        <button class="tab-btn active" id="topTab">トップビュー</button>
-        <button class="tab-btn" id="vizTab">可視化ビュー</button>
+    <div class="tabs" role="tablist">
+        <button class="tab-btn active" id="topTab" role="tab" aria-selected="true" aria-controls="topView" tabindex="0">
+            <span class="tab-icon">📊</span>
+            <span>トップビュー</span>
+            <span class="tab-badge zero" id="topTabBadge">0</span>
+        </button>
+        <button class="tab-btn" id="vizTab" role="tab" aria-selected="false" aria-controls="vizView" tabindex="-1">
+            <span class="tab-icon">📈</span>
+            <span>可視化ビュー</span>
+            <span class="tab-badge zero" id="vizTabBadge">0</span>
+        </button>
+        
+        <div class="tab-shortcuts">
+            <span class="shortcut-hint" title="Switch tabs">Alt+1/2</span>
+            <span class="shortcut-hint" title="Search">Ctrl+F</span>
+        </div>
     </div>
 
-    <div id="topView" class="view active">
+    <!-- Context Menu for Tabs -->
+    <div class="tab-context-menu" id="tabContextMenu">
+        <button class="context-menu-item" onclick="refreshCurrentTab()">
+            <span>🔄</span> Refresh Tab
+        </button>
+        <button class="context-menu-item" onclick="clearCurrentTab()">
+            <span>🗑️</span> Clear Data
+        </button>
+        <button class="context-menu-item" onclick="exportTabData()">
+            <span>💾</span> Export Data
+        </button>
+        <button class="context-menu-item danger" onclick="resetAllTabs()">
+            <span>⚠️</span> Reset All
+        </button>
+    </div>
+
+    <div id="topView" class="view tab-content active" role="tabpanel" aria-labelledby="topTab">
     <div class="container">
+        <!-- Search functionality for Top View -->
+        <div class="search-container">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="topViewSearch" placeholder="Search flows, IPs, protocols...">
+        </div>
         <div class="controls">
             <button class="btn" id="startBtn">Start</button>
             <button class="btn danger" id="stopBtn">Stop</button>
@@ -584,8 +809,13 @@
     </div>
     </div>
 
-        <div id="vizView" class="view">
+        <div id="vizView" class="view tab-content" role="tabpanel" aria-labelledby="vizTab">
         <div class="container viz-container">
+            <!-- Search functionality for Visualization View -->
+            <div class="search-container">
+                <span class="search-icon">📊</span>
+                <input type="text" class="search-input" id="vizViewSearch" placeholder="Filter visualizations, hosts...">
+            </div>
             <svg id="chordDiagram" width="800" height="800"></svg>
             <canvas id="timeChart" height="300"></canvas>
             <canvas id="totalTrafficChart" height="300"></canvas>
@@ -618,10 +848,26 @@
         let cachedElements = new Map(); // DOM element cache
         let shouldSort = false; // whether sorting is needed
 
+        // Enhanced Tab System
         const topTab = document.getElementById('topTab');
         const vizTab = document.getElementById('vizTab');
         const topView = document.getElementById('topView');
         const vizView = document.getElementById('vizView');
+        const topTabBadge = document.getElementById('topTabBadge');
+        const vizTabBadge = document.getElementById('vizTabBadge');
+        const tabContextMenu = document.getElementById('tabContextMenu');
+        const topViewSearch = document.getElementById('topViewSearch');
+        const vizViewSearch = document.getElementById('vizViewSearch');
+        
+        let currentTab = 'top';
+        let searchFilters = {
+            top: '',
+            viz: ''
+        };
+        let tabData = {
+            top: { packets: 0, lastUpdate: 0 },
+            viz: { packets: 0, lastUpdate: 0 }
+        };
 
         // Chart.js time series
         const timeCtx = document.getElementById('timeChart').getContext('2d');
@@ -703,19 +949,219 @@
         const applyFilterBtn = document.getElementById('applyFilterBtn');
         const groupLanWanCheckbox = document.getElementById('groupLanWan');
 
-        topTab.addEventListener('click', () => {
-            topTab.classList.add('active');
-            vizTab.classList.remove('active');
-            topView.classList.add('active');
-            vizView.classList.remove('active');
+        // Enhanced Tab Switching with Animation
+        function switchTab(targetTab) {
+            const tabs = [topTab, vizTab];
+            const views = [topView, vizView];
+            const tabNames = ['top', 'viz'];
+            
+            // Update current tab
+            currentTab = targetTab;
+            
+            // Update tab states
+            tabs.forEach((tab, index) => {
+                const isActive = tabNames[index] === targetTab;
+                tab.classList.toggle('active', isActive);
+                tab.setAttribute('aria-selected', isActive);
+                tab.setAttribute('tabindex', isActive ? '0' : '-1');
+                
+                // Update view states with animation
+                const view = views[index];
+                if (isActive) {
+                    view.style.display = 'block';
+                    requestAnimationFrame(() => {
+                        view.classList.add('active');
+                    });
+                } else {
+                    view.classList.remove('active');
+                    setTimeout(() => {
+                        if (!view.classList.contains('active')) {
+                            view.style.display = 'none';
+                        }
+                    }, 300);
+                }
+            });
+            
+            // Save tab preference
+            localStorage.setItem('activeTab', targetTab);
+            
+            // Update search visibility
+            updateSearchVisibility();
+        }
+
+        // Tab Event Listeners
+        topTab.addEventListener('click', () => switchTab('top'));
+        vizTab.addEventListener('click', () => switchTab('viz'));
+
+        // Keyboard Navigation
+        document.addEventListener('keydown', (e) => {
+            // Alt+1/2 for tab switching
+            if (e.altKey && (e.key === '1' || e.key === '2')) {
+                e.preventDefault();
+                switchTab(e.key === '1' ? 'top' : 'viz');
+            }
+            
+            // Ctrl+F for search
+            if (e.ctrlKey && e.key === 'f') {
+                e.preventDefault();
+                const searchInput = currentTab === 'top' ? topViewSearch : vizViewSearch;
+                searchInput.focus();
+            }
+            
+            // Arrow keys for tab navigation
+            if (e.target.closest('.tabs') && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                e.preventDefault();
+                const currentIndex = currentTab === 'top' ? 0 : 1;
+                const newIndex = e.key === 'ArrowLeft' ? 
+                    (currentIndex === 0 ? 1 : 0) : 
+                    (currentIndex === 1 ? 0 : 1);
+                switchTab(newIndex === 0 ? 'top' : 'viz');
+            }
         });
 
-        vizTab.addEventListener('click', () => {
-            vizTab.classList.add('active');
-            topTab.classList.remove('active');
-            vizView.classList.add('active');
-            topView.classList.remove('active');
+        // Tab Context Menu
+        [topTab, vizTab].forEach(tab => {
+            tab.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showContextMenu(e.clientX, e.clientY);
+            });
         });
+
+        // Hide context menu on click outside
+        document.addEventListener('click', () => {
+            tabContextMenu.style.display = 'none';
+        });
+
+        // Enhanced Tab System Functions
+        function updateTabBadges() {
+            // Update Top View badge with flow count
+            const totalFlows = groupMetadata.size;
+            topTabBadge.textContent = totalFlows;
+            topTabBadge.classList.toggle('zero', totalFlows === 0);
+            
+            // Update Viz View badge with host count
+            const hostCount = hosts.length;
+            vizTabBadge.textContent = hostCount;
+            vizTabBadge.classList.toggle('zero', hostCount === 0);
+            
+            // Update tab data
+            tabData.top.packets = totalFlows;
+            tabData.top.lastUpdate = Date.now();
+            tabData.viz.packets = hostCount;
+            tabData.viz.lastUpdate = Date.now();
+        }
+
+        function showContextMenu(x, y) {
+            tabContextMenu.style.left = x + 'px';
+            tabContextMenu.style.top = y + 'px';
+            tabContextMenu.style.display = 'block';
+        }
+
+        function refreshCurrentTab() {
+            if (currentTab === 'top') {
+                updateStats();
+                sortFlows();
+            } else {
+                drawChordDiagram();
+                refreshTimeChart();
+                refreshTotalTrafficChart();
+                refreshProtocolChart();
+            }
+            console.log(`Refreshed ${currentTab} tab`);
+        }
+
+        function clearCurrentTab() {
+            if (currentTab === 'top') {
+                clearBtn.click();
+            } else {
+                // Clear visualization data
+                protocolCounts.clear();
+                trafficSeries.clear();
+                rebuildHostMatrix();
+                drawChordDiagram();
+                console.log('Cleared visualization data');
+            }
+        }
+
+        function exportTabData() {
+            const data = {
+                tab: currentTab,
+                timestamp: new Date().toISOString(),
+                data: currentTab === 'top' ? 
+                    Array.from(groupMetadata.entries()) : 
+                    { hosts, matrix, protocolCounts: Object.fromEntries(protocolCounts) }
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `webshark-${currentTab}-${Date.now()}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            console.log(`Exported ${currentTab} tab data`);
+        }
+
+        function resetAllTabs() {
+            if (confirm('Are you sure you want to reset all tabs? This will clear all data.')) {
+                clearBtn.click();
+                protocolCounts.clear();
+                trafficSeries.clear();
+                rebuildHostMatrix();
+                drawChordDiagram();
+                console.log('Reset all tabs');
+            }
+        }
+
+        function updateSearchVisibility() {
+            const searchContainers = document.querySelectorAll('.search-container');
+            searchContainers.forEach(container => {
+                container.style.display = 'block';
+            });
+        }
+
+        // Search Functionality
+        function setupSearchFilters() {
+            topViewSearch.addEventListener('input', (e) => {
+                searchFilters.top = e.target.value.toLowerCase();
+                filterTopViewContent();
+            });
+
+            vizViewSearch.addEventListener('input', (e) => {
+                searchFilters.viz = e.target.value.toLowerCase();
+                filterVizViewContent();
+            });
+        }
+
+        function filterTopViewContent() {
+            const query = searchFilters.top;
+            const flows = document.querySelectorAll('.tcp-session');
+            
+            flows.forEach(flow => {
+                const text = flow.textContent.toLowerCase();
+                const matches = !query || text.includes(query);
+                flow.style.display = matches ? 'block' : 'none';
+            });
+        }
+
+        function filterVizViewContent() {
+            const query = searchFilters.viz;
+            // Filter hosts in chord diagram
+            if (query) {
+                const filteredHosts = hosts.filter(host => 
+                    host.toLowerCase().includes(query)
+                );
+                console.log(`Filtered to ${filteredHosts.length} hosts`);
+            }
+        }
+
+        // Tab Persistence
+        function restoreTabState() {
+            const savedTab = localStorage.getItem('activeTab');
+            if (savedTab && (savedTab === 'top' || savedTab === 'viz')) {
+                switchTab(savedTab);
+            }
+        }
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -1014,6 +1460,9 @@
             
             estimatedMemoryUsage += 0.001;
             checkLimits();
+            
+            // Update tab badges
+            updateTabBadges();
         }
         
         function addPacketToExpandedFlow(metadata, packet) {
@@ -1285,6 +1734,7 @@
                 flowList.removeChild(flowElement);
                 groupMetadata.delete(metadataKey);
                 rebuildHostMatrix();
+                updateTabBadges();
             }
         }
 
@@ -1626,6 +2076,7 @@
             protocolCounts.clear();
             rebuildHostMatrix();
             updateMemoryDisplay();
+            updateTabBadges();
         });
 
         // sort feature event listener
@@ -1656,6 +2107,11 @@
         
         // fetch initial statistics
         updateStats();
+
+        // Initialize enhanced tab system
+        setupSearchFilters();
+        restoreTabState();
+        updateTabBadges();
 
         // initial connection
         connectWebSocket();

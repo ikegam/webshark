@@ -409,6 +409,12 @@
             margin: 0 auto 2rem;
         }
 
+        #protocolChart {
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto 2rem;
+        }
+
         #chordDiagram {
             display: block;
             margin: 0 auto;
@@ -583,6 +589,7 @@
             <svg id="chordDiagram" width="800" height="800"></svg>
             <canvas id="timeChart" height="300"></canvas>
             <canvas id="totalTrafficChart" height="300"></canvas>
+            <canvas id="protocolChart" height="300"></canvas>
         </div>
     </div>
 
@@ -658,6 +665,24 @@
                 animation: false,
                 scales: { x: { display: true }, y: { beginAtZero: true } }
             }
+        });
+
+        const protocolCounts = new Map();
+        const protocolCtx = document.getElementById('protocolChart').getContext('2d');
+        const protocolChart = new Chart(protocolCtx, {
+            type: 'doughnut',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Protocols',
+                    data: [],
+                    backgroundColor: [
+                        '#4299e1', '#68d391', '#ed8936', '#e53e3e',
+                        '#9f7aea', '#ed64a6', '#f6ad55', '#38a169', '#718096'
+                    ]
+                }]
+            },
+            options: { animation: false }
         });
 
         // D3 chord diagram data
@@ -1451,6 +1476,8 @@
             trafficSeries.set(sec, (trafficSeries.get(sec) || 0) + packet.length);
             totalTraffic += packet.length;
 
+            protocolCounts.set(packet.protocol, (protocolCounts.get(packet.protocol) || 0) + 1);
+
             updateChordTraffic(packet.src_ip, packet.dst_ip, packet.length);
         }
 
@@ -1558,10 +1585,19 @@
                 }));
         }
 
+        function refreshProtocolChart() {
+            const labels = Array.from(protocolCounts.keys());
+            const data = labels.map(l => protocolCounts.get(l));
+            protocolChart.data.labels = labels;
+            protocolChart.data.datasets[0].data = data;
+            protocolChart.update('none');
+        }
+
         setInterval(() => {
             refreshTimeChart();
             refreshTotalTrafficChart();
             drawChordDiagram();
+            refreshProtocolChart();
         }, 1000);
 
         startBtn.addEventListener('click', function() {
@@ -1587,6 +1623,7 @@
             packetCount = 0;
             estimatedMemoryUsage = 0;
             totalPacketsEl.textContent = '0';
+            protocolCounts.clear();
             rebuildHostMatrix();
             updateMemoryDisplay();
         });

@@ -734,6 +734,7 @@
                     if (packet.proto !== undefined && PROTOCOLS.length) {
                         packet.protocol = PROTOCOLS[packet.proto] || 'UNKNOWN';
                     }
+                    if (packet.sub_proto === null) packet.sub_proto = undefined;
                     packetQueue.push(packet);
                     packetCount++;
                 });
@@ -873,16 +874,18 @@
                 : groupKey;
             switch (groupType) {
                 case 'tcp_sessions':
+                    const tcpSubtitle = packet.sub_proto ? `${packet.sub_proto} over TCP` : 'TCP Session';
                     return {
                         icon: '🔐',
                         title: title,
-                        subtitle: `TCP Session`
+                        subtitle: tcpSubtitle
                     };
                 case 'udp_flows':
+                    const udpSubtitle = packet.sub_proto ? `${packet.sub_proto} over UDP` : 'UDP Flow';
                     return {
                         icon: '📦',
                         title: title,
-                        subtitle: `UDP Flow`
+                        subtitle: udpSubtitle
                     };
                 default:
                     return {
@@ -997,9 +1000,10 @@
             packetDiv.className = 'session-packet';
             
             const timestamp = formatTimestamp(packet.timestamp);
+            const protoLabel = packet.sub_proto ? `${packet.protocol} (${packet.sub_proto})` : packet.protocol;
             packetDiv.innerHTML = `
                 <div><strong>${getDisplayLabel(packet.src_ip)} → ${getDisplayLabel(packet.dst_ip)}</strong></div>
-                <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
+                <div>${timestamp} | ${packet.length} bytes | ${protoLabel}</div>
                 <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
             `;
             
@@ -1077,11 +1081,12 @@
                     const packet = packets[packets.length - 1 - i]; // newest first
                     const packetDiv = document.createElement('div');
                     packetDiv.className = 'session-packet';
-                    
+
                     const timestamp = formatTimestamp(packet.timestamp);
+                    const protoLabel = packet.sub_proto ? `${packet.protocol} (${packet.sub_proto})` : packet.protocol;
                     packetDiv.innerHTML = `
                         <div><strong>${getDisplayLabel(packet.src_ip)} → ${getDisplayLabel(packet.dst_ip)}</strong></div>
-                        <div>${timestamp} | ${packet.length} bytes | ${packet.protocol}</div>
+                        <div>${timestamp} | ${packet.length} bytes | ${protoLabel}</div>
                         <div style="color: #718096; margin-top: 0.25rem;">${packet.info}</div>
                     `;
                     
@@ -1318,12 +1323,13 @@
             
             const timestamp = new Date(packet.timestamp * 1000).toLocaleTimeString();
             
+            const protoLabel = packet.sub_proto ? `${packet.protocol} (${packet.sub_proto})` : packet.protocol;
             packetDiv.innerHTML = `
                 <div class="packet-info">
                     <div class="packet-main">${getDisplayLabel(packet.src_ip)} → ${getDisplayLabel(packet.dst_ip)}</div>
                     <div class="packet-detail">${timestamp} | ${packet.length} bytes | ${packet.info}</div>
                 </div>
-                <div class="packet-protocol">${packet.protocol}</div>
+                <div class="packet-protocol">${protoLabel}</div>
             `;
 
             packetList.insertBefore(packetDiv, packetList.firstChild);

@@ -310,6 +310,57 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
     }
 }
 
+fn first_non_empty(parts: &[&str], indices: &[usize]) -> String {
+    indices
+        .iter()
+        .find_map(|&idx| {
+            parts.get(idx).and_then(|&part| {
+                if !part.is_empty() {
+                    Some(part.to_string())
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_else(|| "Unknown".to_string())
+}
+
+fn parse_protocols(hierarchy: &str) -> (String, Option<String>) {
+    if hierarchy.is_empty() {
+        return ("Unknown".to_string(), None);
+    }
+
+    let protocols: Vec<&str> = hierarchy.split(':').collect();
+
+    let sub_proto = if protocols.contains(&"tls") || protocols.contains(&"ssl") {
+        Some("TLS".to_string())
+    } else if protocols.contains(&"websocket") || protocols.contains(&"ws") {
+        Some("WEBSOCKET".to_string())
+    } else if protocols.contains(&"quic") {
+        Some("QUIC".to_string())
+    } else {
+        None
+    };
+
+    let base = if protocols.contains(&"tcp") {
+        "TCP".to_string()
+    } else if protocols.contains(&"udp") {
+        "UDP".to_string()
+    } else if protocols.contains(&"icmp") || protocols.contains(&"icmpv6") {
+        "ICMP".to_string()
+    } else if protocols.contains(&"arp") {
+        "ARP".to_string()
+    } else if protocols.contains(&"ipv6") {
+        "IPv6".to_string()
+    } else if protocols.contains(&"ip") {
+        "IP".to_string()
+    } else {
+        protocols.last().map_or("Unknown", |v| v).to_uppercase()
+    };
+
+    (base, sub_proto)
+}
+
 fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     // Limit splitting to the first 9 separators to avoid breaking the info
     // field if it contains the separator character.
@@ -320,62 +371,10 @@ fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
 
     let timestamp = parts[0].parse::<f64>().ok()? as u64;
 
-    let src_ip = if !parts[1].is_empty() {
-        parts[1].to_string()
-    } else if !parts[3].is_empty() {
-        parts[3].to_string()
-    } else if !parts[5].is_empty() {
-        parts[5].to_string()
-    } else {
-        "Unknown".to_string()
-    };
+    let src_ip = first_non_empty(&parts, &[1, 3, 5]);
+    let dst_ip = first_non_empty(&parts, &[2, 4, 6]);
 
-    let dst_ip = if !parts[2].is_empty() {
-        parts[2].to_string()
-    } else if !parts[4].is_empty() {
-        parts[4].to_string()
-    } else if !parts[6].is_empty() {
-        parts[6].to_string()
-    } else {
-        "Unknown".to_string()
-    };
-
-    let (protocol, sub_protocol) = if parts[7].is_empty() {
-        ("Unknown".to_string(), None)
-    } else {
-        // Extract actual protocol from protocol hierarchy (e.g. "sll:ethertype:ip:tcp" -> "tcp")
-        let protocols: Vec<&str> = parts[7].split(':').collect();
-
-        // Detect sub protocols like TLS, WebSocket and QUIC
-        let mut sub_proto: Option<String> = None;
-        if protocols.contains(&"tls") || protocols.contains(&"ssl") {
-            sub_proto = Some("TLS".to_string());
-        } else if protocols.contains(&"websocket") || protocols.contains(&"ws") {
-            sub_proto = Some("WEBSOCKET".to_string());
-        } else if protocols.contains(&"quic") {
-            sub_proto = Some("QUIC".to_string());
-        }
-
-        // Priority: tcp, udp, icmp, arp, others
-        let base = if protocols.contains(&"tcp") {
-            "TCP".to_string()
-        } else if protocols.contains(&"udp") {
-            "UDP".to_string()
-        } else if protocols.contains(&"icmp") || protocols.contains(&"icmpv6") {
-            "ICMP".to_string()
-        } else if protocols.contains(&"arp") {
-            "ARP".to_string()
-        } else if protocols.contains(&"ipv6") {
-            "IPv6".to_string()
-        } else if protocols.contains(&"ip") {
-            "IP".to_string()
-        } else {
-            // Use the last protocol (most specific)
-            protocols.last().map_or("Unknown", |v| v).to_uppercase()
-        };
-
-        (base, sub_proto)
-    };
+    let (protocol, sub_protocol) = parse_protocols(parts[7]);
     let length = parts[8].parse::<u32>().unwrap_or(0);
     let info = if parts[9].is_empty() {
         "Unknown".to_string()

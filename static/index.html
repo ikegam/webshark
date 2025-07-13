@@ -582,33 +582,61 @@
         }
 
         #vizView .viz-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .viz-card {
+            background: #2d3748;
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid #4a5568;
+            min-height: 350px;
             display: flex;
             flex-direction: column;
-            gap: 2rem;
+        }
+
+        .viz-card h3 {
+            color: #4299e1;
+            margin-bottom: 0.5rem;
+            font-size: 1.2rem;
+            text-align: center;
+        }
+
+        .viz-card .viz-description {
+            color: #a0aec0;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .viz-card .viz-content {
+            flex: 1;
+            display: flex;
             align-items: center;
+            justify-content: center;
+            position: relative;
         }
 
-        #timeChart {
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto 2rem;
+        .viz-card canvas {
+            max-width: 100%;
+            max-height: 280px;
         }
 
-        #totalTrafficChart {
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto 2rem;
+        .viz-card svg {
+            max-width: 100%;
+            max-height: 280px;
         }
 
-        #protocolChart {
-            width: 100%;
-            max-width: 600px;
-            margin: 0 auto 2rem;
-        }
-
-        #chordDiagram {
-            display: block;
-            margin: 0 auto;
+        .viz-placeholder {
+            color: #718096;
+            font-style: italic;
+            text-align: center;
         }
 
         /* ⚡ ULTRAfast loading skeleton */
@@ -644,7 +672,7 @@
             }
 
             #vizView .viz-container {
-                flex-direction: column;
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -810,16 +838,105 @@
     </div>
 
         <div id="vizView" class="view tab-content" role="tabpanel" aria-labelledby="vizTab">
-        <div class="container viz-container">
+        <div class="container">
             <!-- Search functionality for Visualization View -->
             <div class="search-container">
                 <span class="search-icon">📊</span>
                 <input type="text" class="search-input" id="vizViewSearch" placeholder="Filter visualizations, hosts...">
             </div>
-            <svg id="chordDiagram" width="800" height="800"></svg>
-            <canvas id="timeChart" height="300"></canvas>
-            <canvas id="totalTrafficChart" height="300"></canvas>
-            <canvas id="protocolChart" height="300"></canvas>
+            
+            <div class="viz-container">
+                <!-- Row 1 -->
+                <div class="viz-card">
+                    <h3>🔗 ネットワークフロー図</h3>
+                    <div class="viz-description">ホスト間の通信フローを可視化</div>
+                    <div class="viz-content">
+                        <svg id="chordDiagram" width="300" height="280"></svg>
+                    </div>
+                </div>
+                
+                <div class="viz-card">
+                    <h3>📈 時系列トラフィック</h3>
+                    <div class="viz-description">時間経過に伴うトラフィック量の変化</div>
+                    <div class="viz-content">
+                        <canvas id="timeChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Row 2 -->
+                <div class="viz-card">
+                    <h3>📊 累積トラフィック</h3>
+                    <div class="viz-description">総トラフィック量の累積推移</div>
+                    <div class="viz-content">
+                        <canvas id="totalTrafficChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <div class="viz-card">
+                    <h3>🎯 プロトコル分布</h3>
+                    <div class="viz-description">ネットワークプロトコルの使用状況</div>
+                    <div class="viz-content">
+                        <canvas id="protocolChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Row 3 -->
+                <div class="viz-card">
+                    <h3>📤 トップ送信元ホスト</h3>
+                    <div class="viz-description">最も多くデータを送信しているホスト</div>
+                    <div class="viz-content">
+                        <canvas id="topSourcesChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <div class="viz-card">
+                    <h3>📥 トップ宛先ホスト</h3>
+                    <div class="viz-description">最も多くデータを受信しているホスト</div>
+                    <div class="viz-content">
+                        <canvas id="topDestinationsChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Row 4 -->
+                <div class="viz-card">
+                    <h3>📦 パケットサイズ分布</h3>
+                    <div class="viz-description">パケットサイズの統計分布</div>
+                    <div class="viz-content">
+                        <canvas id="packetSizeChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <div class="viz-card">
+                    <h3>🔄 接続状態統計</h3>
+                    <div class="viz-description">TCP接続状態とUDPフローの統計</div>
+                    <div class="viz-content">
+                        <canvas id="connectionStatesChart" height="280"></canvas>
+                    </div>
+                </div>
+                
+                <!-- Row 5 -->
+                <div class="viz-card">
+                    <h3>🌍 地理的分布マップ</h3>
+                    <div class="viz-description">IPアドレスの地理的分布（将来実装予定）</div>
+                    <div class="viz-content">
+                        <div class="viz-placeholder">
+                            地理的分布マップ<br>
+                            <small>将来の機能拡張で実装予定</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="viz-card">
+                    <h3>⚠️ セキュリティアラート</h3>
+                    <div class="viz-description">異常検知とセキュリティアラート（将来実装予定）</div>
+                    <div class="viz-content">
+                        <div class="viz-placeholder">
+                            セキュリティアラート<br>
+                            <small>将来の機能拡張で実装予定</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -929,6 +1046,101 @@
                 }]
             },
             options: { animation: false }
+        });
+
+        // Top Sources Chart
+        const topSourcesData = new Map();
+        const topSourcesCtx = document.getElementById('topSourcesChart').getContext('2d');
+        const topSourcesChart = new Chart(topSourcesCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Packets Sent',
+                    data: [],
+                    backgroundColor: '#4299e1',
+                    borderColor: '#3182ce',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+
+        // Top Destinations Chart
+        const topDestinationsData = new Map();
+        const topDestinationsCtx = document.getElementById('topDestinationsChart').getContext('2d');
+        const topDestinationsChart = new Chart(topDestinationsCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Packets Received',
+                    data: [],
+                    backgroundColor: '#68d391',
+                    borderColor: '#38a169',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+
+        // Packet Size Distribution Chart
+        const packetSizeData = new Map();
+        const packetSizeCtx = document.getElementById('packetSizeChart').getContext('2d');
+        const packetSizeChart = new Chart(packetSizeCtx, {
+            type: 'bar',
+            data: {
+                labels: ['0-64', '65-128', '129-256', '257-512', '513-1024', '1025-1500', '1501+'],
+                datasets: [{
+                    label: 'Packet Count',
+                    data: [0, 0, 0, 0, 0, 0, 0],
+                    backgroundColor: '#ed8936',
+                    borderColor: '#dd6b20',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+
+        // Connection States Chart
+        const connectionStatesData = new Map();
+        const connectionStatesCtx = document.getElementById('connectionStatesChart').getContext('2d');
+        const connectionStatesChart = new Chart(connectionStatesCtx, {
+            type: 'pie',
+            data: {
+                labels: ['TCP Sessions', 'UDP Flows', 'Other Protocols'],
+                datasets: [{
+                    label: 'Connection Types',
+                    data: [0, 0, 0],
+                    backgroundColor: ['#9f7aea', '#ed64a6', '#f6ad55']
+                }]
+            },
+            options: {
+                animation: false,
+                responsive: true,
+                maintainAspectRatio: false
+            }
         });
 
         // D3 chord diagram data
@@ -1066,6 +1278,10 @@
                 refreshTimeChart();
                 refreshTotalTrafficChart();
                 refreshProtocolChart();
+                refreshTopSourcesChart();
+                refreshTopDestinationsChart();
+                refreshPacketSizeChart();
+                refreshConnectionStatesChart();
             }
             console.log(`Refreshed ${currentTab} tab`);
         }
@@ -1077,6 +1293,10 @@
                 // Clear visualization data
                 protocolCounts.clear();
                 trafficSeries.clear();
+                topSourcesData.clear();
+                topDestinationsData.clear();
+                packetSizeChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0];
+                connectionStatesChart.data.datasets[0].data = [0, 0, 0];
                 rebuildHostMatrix();
                 drawChordDiagram();
                 console.log('Cleared visualization data');
@@ -1929,6 +2149,48 @@
             protocolCounts.set(packet.protocol, (protocolCounts.get(packet.protocol) || 0) + 1);
 
             updateChordTraffic(packet.src_ip, packet.dst_ip, packet.length);
+            
+            // Update new visualizations
+            updateTopSourcesData(packet);
+            updateTopDestinationsData(packet);
+            updatePacketSizeData(packet);
+            updateConnectionStatesData(packet);
+        }
+
+        function updateTopSourcesData(packet) {
+            const currentCount = topSourcesData.get(packet.src_ip) || 0;
+            topSourcesData.set(packet.src_ip, currentCount + 1);
+        }
+
+        function updateTopDestinationsData(packet) {
+            const currentCount = topDestinationsData.get(packet.dst_ip) || 0;
+            topDestinationsData.set(packet.dst_ip, currentCount + 1);
+        }
+
+        function updatePacketSizeData(packet) {
+            const size = packet.length;
+            let category;
+            if (size <= 64) category = 0;
+            else if (size <= 128) category = 1;
+            else if (size <= 256) category = 2;
+            else if (size <= 512) category = 3;
+            else if (size <= 1024) category = 4;
+            else if (size <= 1500) category = 5;
+            else category = 6;
+            
+            const currentData = packetSizeChart.data.datasets[0].data;
+            currentData[category]++;
+        }
+
+        function updateConnectionStatesData(packet) {
+            const protocol = packet.protocol.toUpperCase();
+            let index;
+            if (protocol === 'TCP') index = 0;
+            else if (protocol === 'UDP') index = 1;
+            else index = 2;
+            
+            const currentData = connectionStatesChart.data.datasets[0].data;
+            currentData[index]++;
         }
 
         function refreshTimeChart() {
@@ -2043,11 +2305,49 @@
             protocolChart.update('none');
         }
 
+        function refreshTopSourcesChart() {
+            const sorted = Array.from(topSourcesData.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 10);
+            
+            const labels = sorted.map(([ip]) => getDisplayLabel(ip));
+            const data = sorted.map(([,count]) => count);
+            
+            topSourcesChart.data.labels = labels;
+            topSourcesChart.data.datasets[0].data = data;
+            topSourcesChart.update('none');
+        }
+
+        function refreshTopDestinationsChart() {
+            const sorted = Array.from(topDestinationsData.entries())
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 10);
+            
+            const labels = sorted.map(([ip]) => getDisplayLabel(ip));
+            const data = sorted.map(([,count]) => count);
+            
+            topDestinationsChart.data.labels = labels;
+            topDestinationsChart.data.datasets[0].data = data;
+            topDestinationsChart.update('none');
+        }
+
+        function refreshPacketSizeChart() {
+            packetSizeChart.update('none');
+        }
+
+        function refreshConnectionStatesChart() {
+            connectionStatesChart.update('none');
+        }
+
         setInterval(() => {
             refreshTimeChart();
             refreshTotalTrafficChart();
             drawChordDiagram();
             refreshProtocolChart();
+            refreshTopSourcesChart();
+            refreshTopDestinationsChart();
+            refreshPacketSizeChart();
+            refreshConnectionStatesChart();
         }, 1000);
 
         startBtn.addEventListener('click', function() {
@@ -2074,6 +2374,13 @@
             estimatedMemoryUsage = 0;
             totalPacketsEl.textContent = '0';
             protocolCounts.clear();
+            
+            // Clear new visualization data
+            topSourcesData.clear();
+            topDestinationsData.clear();
+            packetSizeChart.data.datasets[0].data = [0, 0, 0, 0, 0, 0, 0];
+            connectionStatesChart.data.datasets[0].data = [0, 0, 0];
+            
             rebuildHostMatrix();
             updateMemoryDisplay();
             updateTabBadges();

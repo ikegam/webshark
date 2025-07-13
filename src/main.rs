@@ -196,8 +196,19 @@ async fn main() {
 
     info!("Starting packet visualization server... http://localhost:3000");
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind("0.0.0.0:3000").await {
+        Ok(listener) => listener,
+        Err(e) => {
+            error!("Failed to bind to port 3000: {}", e);
+            error!("Please ensure port 3000 is not in use by another application");
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = axum::serve(listener, app).await {
+        error!("Server error: {}", e);
+        std::process::exit(1);
+    }
 }
 
 async fn capture_packets_manager(
@@ -209,21 +220,50 @@ async fn capture_packets_manager(
     info!("Starting packet capture manager");
 
     loop {
-        let capture_task = tokio::spawn(capture_packets(stats.clone(), filter.clone(), tx.clone()));
+        // Create abort handle for graceful shutdown
+        let (abort_tx, abort_rx) = tokio::sync::oneshot::channel();
+        let capture_task = tokio::spawn(capture_packets(
+            stats.clone(), 
+            filter.clone(), 
+            tx.clone(),
+            abort_rx
+        ));
 
         // Wait for restart command
-        if let Some(CaptureCommand::Restart) = cmd_rx.recv().await {
-            info!("Restarting packet capture...");
-            capture_task.abort();
-            continue;
-        } else {
-            // Exit if command channel is closed
-            break;
+        match cmd_rx.recv().await {
+            Some(CaptureCommand::Restart) => {
+                info!("Restarting packet capture...");
+                
+                // Signal the capture task to stop gracefully
+                let _ = abort_tx.send(());
+                
+                // Wait for the task to complete with timeout
+                match tokio::time::timeout(std::time::Duration::from_secs(5), capture_task).await {
+                    Ok(_) => info!("Capture task stopped gracefully"),
+                    Err(_) => {
+                        warn!("Capture task did not stop within timeout, forcing abort");
+                    }
+                }
+                
+                continue;
+            }
+            None => {
+                // Command channel closed, exit
+                info!("Command channel closed, stopping capture manager");
+                let _ = abort_tx.send(());
+                let _ = capture_task.await;
+                break;
+            }
         }
     }
 }
 
-async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcaster) {
+async fn capture_packets(
+    stats: SharedStats, 
+    filter: SharedFilter, 
+    tx: Broadcaster,
+    mut abort_rx: tokio::sync::oneshot::Receiver<()>,
+) {
     info!("Starting packet capture");
 
     // Basic tshark command arguments
@@ -285,26 +325,61 @@ async fn capture_packets(stats: SharedStats, filter: SharedFilter, tx: Broadcast
         }
     };
 
-    let stdout = child.stdout.take().unwrap();
+
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            error!("Failed to get stdout from tshark process");
+            return;
+        }
+    };
     let mut reader = BufReader::new(stdout).lines();
 
-    while let Ok(Some(line)) = reader.next_line().await {
-        if let Some(packet) = parse_tshark_line(&line) {
-            // Update statistics
-            {
-                let mut stats = stats.lock().unwrap();
-                stats.total_packets += 1;
-                *stats.protocols.entry(packet.protocol.clone()).or_insert(0) += 1;
-                *stats.top_sources.entry(packet.src_ip.clone()).or_insert(0) += 1;
-                *stats
-                    .top_destinations
-                    .entry(packet.dst_ip.clone())
-                    .or_insert(0) += 1;
-            }
+    loop {
+        tokio::select! {
+            line_result = reader.next_line() => {
+                match line_result {
+                    Ok(Some(line)) => {
+                        if let Some(packet) = parse_tshark_line(&line) {
+                            // Update statistics
+                            if let Ok(mut stats) = stats.lock() {
+                                stats.total_packets += 1;
+                                *stats.protocols.entry(packet.protocol.clone()).or_insert(0) += 1;
+                                *stats.top_sources.entry(packet.src_ip.clone()).or_insert(0) += 1;
+                                *stats
+                                    .top_destinations
+                                    .entry(packet.dst_ip.clone())
+                                    .or_insert(0) += 1;
+                            } else {
+                                warn!("Failed to acquire stats lock, skipping packet statistics update");
+                            }
 
-            // Send to WebSocket clients
-            if let Err(_) = tx.send(packet) {
-                // Ignore if no clients are connected
+                            // Send to WebSocket clients
+                            if let Err(_) = tx.send(packet) {
+                                // Ignore if no clients are connected
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // End of stream
+                        info!("tshark stream ended");
+                        break;
+                    }
+                    Err(e) => {
+                        error!("Error reading from tshark: {}", e);
+                        break;
+                    }
+                }
+            }
+            _ = &mut abort_rx => {
+                info!("Received abort signal, stopping packet capture");
+                // Kill the child process gracefully
+                if let Err(e) = child.kill().await {
+                    warn!("Failed to kill tshark process: {}", e);
+                } else {
+                    info!("Successfully terminated tshark process");
+                }
+                break;
             }
         }
     }
@@ -399,16 +474,69 @@ async fn index_handler() -> Html<&'static str> {
 
 async fn stats_handler(
     State((stats, _, _, _)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>,
-) -> Json<PacketStats> {
-    let stats = stats.lock().unwrap();
-    Json(stats.clone())
+) -> Result<Json<PacketStats>, StatusCode> {
+    let stats = match stats.lock() {
+        Ok(stats) => stats,
+        Err(e) => {
+            error!("Failed to acquire stats lock: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+    Ok(Json(stats.clone()))
+}
+
+fn validate_tshark_filter(filter: &str) -> bool {
+    // Basic filter validation - check for dangerous characters and basic syntax
+    if filter.is_empty() {
+        return true; // Empty filter is valid
+    }
+    
+    // Check for potentially dangerous characters that could be used for command injection
+    let dangerous_chars = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\''];
+    if filter.chars().any(|c| dangerous_chars.contains(&c)) {
+        return false;
+    }
+    
+    // Check for basic tshark filter keywords
+    let valid_keywords = &[
+        "tcp", "udp", "icmp", "arp", "ip", "ipv6", "port", "host", "src", "dst",
+        "and", "or", "not", "proto", "ether", "broadcast", "multicast"
+    ];
+    
+    // Simple word-based validation - at least one valid keyword should be present
+    let words: Vec<&str> = filter.split_whitespace().collect();
+    if words.iter().any(|word| valid_keywords.contains(&word.to_lowercase().as_str())) {
+        return true;
+    }
+    
+    // Also allow numeric patterns for ports and IPs
+    if filter.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || ".:".contains(c)) {
+        return true;
+    }
+    
+    false
 }
 
 async fn set_filter_handler(
     State((_, filter, _, cmd_tx)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>,
     Json(new_filter): Json<FilterConfig>,
 ) -> Result<Json<FilterConfig>, StatusCode> {
-    let mut filter_guard = filter.lock().unwrap();
+    // Validate filter if provided
+    if let Some(ref filter_str) = new_filter.tshark_filter {
+        if !validate_tshark_filter(filter_str) {
+            warn!("Invalid tshark filter rejected: {}", filter_str);
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+    
+    let mut filter_guard = match filter.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            error!("Failed to acquire filter lock: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+    
     *filter_guard = new_filter.clone();
     info!("Filter updated: {:?}", new_filter.tshark_filter);
 
@@ -466,12 +594,28 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
                 },
                 _ = interval.tick() => {
                     if !packet_buffer.is_empty() {
-                        let batch_data = serde_json::to_vec(&packet_buffer).unwrap();
+                        let batch_data = match serde_json::to_vec(&packet_buffer) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                error!("Failed to serialize packet buffer: {}", e);
+                                packet_buffer.clear();
+                                continue;
+                            }
+                        };
 
                         // gzip compression
                         let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-                        encoder.write_all(&batch_data).unwrap();
-                        let compressed = encoder.finish().unwrap();
+                        if let Err(e) = encoder.write_all(&batch_data) {
+                            error!("Failed to compress batch data: {}", e);
+                            break;
+                        }
+                        let compressed = match encoder.finish() {
+                            Ok(compressed) => compressed,
+                            Err(e) => {
+                                error!("Failed to finish compression: {}", e);
+                                break;
+                            }
+                        };
 
                         if sender.send(Message::Binary(compressed)).await.is_err() {
                             break;
@@ -484,11 +628,14 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
         }
         // Flush remaining packets
         if !packet_buffer.is_empty() {
-            let batch_data = serde_json::to_vec(&packet_buffer).unwrap();
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-            encoder.write_all(&batch_data).unwrap();
-            let compressed = encoder.finish().unwrap();
-            let _ = sender.send(Message::Binary(compressed)).await;
+            if let Ok(batch_data) = serde_json::to_vec(&packet_buffer) {
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+                if encoder.write_all(&batch_data).is_ok() {
+                    if let Ok(compressed) = encoder.finish() {
+                        let _ = sender.send(Message::Binary(compressed)).await;
+                    }
+                }
+            }
         }
     });
 

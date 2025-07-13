@@ -222,45 +222,48 @@ async fn capture_packets_manager(
     loop {
         // Create abort handle for graceful shutdown
         let (abort_tx, abort_rx) = tokio::sync::oneshot::channel();
-        let capture_task = tokio::spawn(capture_packets(
-            stats.clone(), 
-            filter.clone(), 
+        let mut capture_task = tokio::spawn(capture_packets(
+            stats.clone(),
+            filter.clone(),
             tx.clone(),
-            abort_rx
+            abort_rx,
         ));
 
-        // Wait for restart command
-        match cmd_rx.recv().await {
-            Some(CaptureCommand::Restart) => {
-                info!("Restarting packet capture...");
-                
-                // Signal the capture task to stop gracefully
-                let _ = abort_tx.send(());
-                
-                // Wait for the task to complete with timeout
-                match tokio::time::timeout(std::time::Duration::from_secs(5), capture_task).await {
-                    Ok(_) => info!("Capture task stopped gracefully"),
-                    Err(_) => {
-                        warn!("Capture task did not stop within timeout, forcing abort");
+        loop {
+            tokio::select! {
+                cmd = cmd_rx.recv() => {
+                    match cmd {
+                        Some(CaptureCommand::Restart) => {
+                            info!("Restarting packet capture...");
+                            let _ = abort_tx.send(());
+                            let _ = capture_task.await;
+                            break;
+                        }
+                        None => {
+                            info!("Command channel closed, stopping capture manager");
+                            let _ = abort_tx.send(());
+                            let _ = capture_task.await;
+                            return;
+                        }
                     }
                 }
-                
-                continue;
-            }
-            None => {
-                // Command channel closed, exit
-                info!("Command channel closed, stopping capture manager");
-                let _ = abort_tx.send(());
-                let _ = capture_task.await;
-                break;
+                result = &mut capture_task => {
+                    match result {
+                        Ok(_) => info!("Capture task ended unexpectedly, restarting..."),
+                        Err(e) => error!("Capture task panicked: {}", e),
+                    }
+                    // Slight delay to avoid rapid restart loops
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    break;
+                }
             }
         }
     }
 }
 
 async fn capture_packets(
-    stats: SharedStats, 
-    filter: SharedFilter, 
+    stats: SharedStats,
+    filter: SharedFilter,
     tx: Broadcaster,
     mut abort_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
@@ -324,7 +327,6 @@ async fn capture_packets(
             return;
         }
     };
-
 
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
@@ -490,30 +492,51 @@ fn validate_tshark_filter(filter: &str) -> bool {
     if filter.is_empty() {
         return true; // Empty filter is valid
     }
-    
+
     // Check for potentially dangerous characters that could be used for command injection
     let dangerous_chars = &['&', '|', ';', '`', '$', '(', ')', '<', '>', '"', '\''];
     if filter.chars().any(|c| dangerous_chars.contains(&c)) {
         return false;
     }
-    
+
     // Check for basic tshark filter keywords
     let valid_keywords = &[
-        "tcp", "udp", "icmp", "arp", "ip", "ipv6", "port", "host", "src", "dst",
-        "and", "or", "not", "proto", "ether", "broadcast", "multicast"
+        "tcp",
+        "udp",
+        "icmp",
+        "arp",
+        "ip",
+        "ipv6",
+        "port",
+        "host",
+        "src",
+        "dst",
+        "and",
+        "or",
+        "not",
+        "proto",
+        "ether",
+        "broadcast",
+        "multicast",
     ];
-    
+
     // Simple word-based validation - at least one valid keyword should be present
     let words: Vec<&str> = filter.split_whitespace().collect();
-    if words.iter().any(|word| valid_keywords.contains(&word.to_lowercase().as_str())) {
+    if words
+        .iter()
+        .any(|word| valid_keywords.contains(&word.to_lowercase().as_str()))
+    {
         return true;
     }
-    
+
     // Also allow numeric patterns for ports and IPs
-    if filter.chars().all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || ".:".contains(c)) {
+    if filter
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c.is_whitespace() || ".:".contains(c))
+    {
         return true;
     }
-    
+
     false
 }
 
@@ -528,7 +551,7 @@ async fn set_filter_handler(
             return Err(StatusCode::BAD_REQUEST);
         }
     }
-    
+
     let mut filter_guard = match filter.lock() {
         Ok(guard) => guard,
         Err(e) => {
@@ -536,7 +559,7 @@ async fn set_filter_handler(
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
-    
+
     *filter_guard = new_filter.clone();
     info!("Filter updated: {:?}", new_filter.tshark_filter);
 

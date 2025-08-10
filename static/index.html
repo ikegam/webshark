@@ -1400,26 +1400,31 @@
             ws.onmessage = async function(event) {
                 let packets = [];
 
-                if (typeof event.data === 'string') {
+                if (event.data instanceof Blob) {
+                    try {
+                        const arrayBuffer = await event.data.arrayBuffer();
+                        const decompressed = pako.inflate(new Uint8Array(arrayBuffer), { to: 'string' });
+                        const msg = JSON.parse(decompressed);
+                        if (msg.type === 'ctx') {
+                            PROTOCOLS = msg.protocols;
+                            LOCAL_IPS = msg.local_ips || [];
+                            return;
+                        }
+                        packets = Array.isArray(msg) ? msg : [msg];
+                    } catch (e) {
+                        console.error('Failed to decompress data:', e);
+                        return;
+                    }
+                } else if (typeof event.data === 'string') {
                     const msg = JSON.parse(event.data);
                     if (msg.type === 'ctx') {
                         PROTOCOLS = msg.protocols;
                         LOCAL_IPS = msg.local_ips || [];
                         return;
                     }
-                    packets = [msg];
-                } else if (event.data instanceof Blob) {
-                    // Decompress data
-                    try {
-                        const arrayBuffer = await event.data.arrayBuffer();
-                        const decompressed = pako.inflate(new Uint8Array(arrayBuffer), { to: 'string' });
-                        packets = JSON.parse(decompressed);
-                    } catch (e) {
-                        console.error('Failed to decompress data:', e);
-                        return;
-                    }
+                    packets = Array.isArray(msg) ? msg : [msg];
                 }
-                
+
                 // Add batch packets to queue
                 packets.forEach(packet => {
                     if (packet.proto !== undefined && PROTOCOLS.length) {

@@ -590,7 +590,26 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster) {
         "protocols": PROTOCOLS,
         "local_ips": get_local_ips()
     });
-    if sender.send(Message::Text(ctx.to_string())).await.is_err() {
+    let ctx_bytes = match serde_json::to_vec(&ctx) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            error!("Failed to serialize context: {}", e);
+            return;
+        }
+    };
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    if let Err(e) = encoder.write_all(&ctx_bytes) {
+        error!("Failed to compress context: {}", e);
+        return;
+    }
+    let ctx_compressed = match encoder.finish() {
+        Ok(compressed) => compressed,
+        Err(e) => {
+            error!("Failed to finish context compression: {}", e);
+            return;
+        }
+    };
+    if sender.send(Message::Binary(ctx_compressed)).await.is_err() {
         return;
     }
 

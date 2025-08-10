@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebShark - Network Packet Visualizer</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
-    <style>
+    <!--
         * {
             margin: 0;
             padding: 0;
@@ -675,7 +675,7 @@
                 grid-template-columns: 1fr;
             }
         }
-    </style>
+    -->
 </head>
 <body>
     <div class="header">
@@ -944,9 +944,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script>
-        let ws = null;
-        let isRunning = false;
+    <script src="/static/js/app.js"></script>
+    <script src="/static/js/ws.js"></script>
+<!--
         let packetCount = 0;
         let PROTOCOLS = [];
         let LOCAL_IPS = [];
@@ -2420,8 +2420,7 @@
         restoreTabState();
         updateTabBadges();
 
-        // initial connection
-        connectWebSocket();
-    </script>
+    
+-->
 </body>
 </html>

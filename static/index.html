@@ -108,9 +108,16 @@
                             <button data-gmode="graph">グラフ</button>
                         </div>
                     </header>
-                    <div class="graph-box map-only" id="mapBox">
-                        <svg id="geoMap" role="img" aria-label="通信相手の地理的な位置"></svg>
-                        <a class="map-attribution" id="geoAttribution" href="https://db-ip.com" target="_blank" rel="noopener" hidden>IP Geolocation by DB-IP</a>
+                    <div class="map-split map-only" id="mapBox">
+                        <div class="map-pane" id="mapWorld">
+                            <span class="map-caption">世界</span>
+                            <svg role="img" aria-label="海外の通信相手の位置（世界地図）"></svg>
+                        </div>
+                        <div class="map-pane" id="mapJapan">
+                            <span class="map-caption">日本</span>
+                            <svg role="img" aria-label="国内の通信相手の位置（日本地図）"></svg>
+                            <a class="map-attribution" id="geoAttribution" href="https://db-ip.com" target="_blank" rel="noopener" hidden>IP Geolocation by DB-IP</a>
+                        </div>
                     </div>
                     <div class="graph-box graph-only" id="graphBox" hidden><svg id="graph" role="img" aria-label="ホスト間の通信グラフ"></svg></div>
                 </article>

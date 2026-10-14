@@ -15,6 +15,9 @@ const PARTICLE_SPEED = 140;       // px per second
 const FALLBACK_HOME = { lat: 35.68, lon: 139.76, cc: 'JP', country: '日本', city: 'Tokyo' };
 // Japan's four main islands plus Okinawa; far-flung islets would zoom the pane out.
 const JAPAN_EXTENT = { type: 'MultiPoint', coordinates: [[127.5, 26.0], [146.2, 45.6]] };
+const JAPAN_MIN_SPAN = 3;         // degrees; never zoom in further than about the Kanto region
+const ZOOM_IN_HOLD = 15;          // s a tighter view must stay valid before zooming in
+const ZOOM_MS = 1000;
 
 const GEO = {
     enabled: false,
@@ -126,6 +129,17 @@ function geoInit() {
         geoMakePane('mapJapan', {
             filter: (l) => l.cc === 'JP',
             fit: () => JAPAN_EXTENT,
+            // Follow the traffic: fit home plus the domestic locations in use.
+            zoomTo: (pane, home) => {
+                if (!pane.locs.length) return null;
+                const pts = [[home.lon, home.lat], ...pane.locs.map((l) => [l.lon, l.lat])];
+                let [x0, x1] = d3.extent(pts, (p) => p[0]);
+                let [y0, y1] = d3.extent(pts, (p) => p[1]);
+                const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+                const sx = Math.max(JAPAN_MIN_SPAN, (x1 - x0) * 1.3) / 2;
+                const sy = Math.max(JAPAN_MIN_SPAN, (y1 - y0) * 1.3) / 2;
+                return { type: 'MultiPoint', coordinates: [[cx - sx, cy - sy], [cx + sx, cy + sy]] };
+            },
             empty: '国内との通信はありません',
             maxLabels: 6,
         }),
@@ -146,13 +160,75 @@ function geoLayoutPane(pane) {
     // Centre the Pacific a little east of home so Japan <-> Americas arcs do
     // not cross the map edge.
     const pad = Math.min(24, pane.w * 0.05);
+    pane.extent = [[pad, pad + 16], [pane.w - pad, pane.h - pad]];
     pane.proj = d3.geoMercator().rotate([-(home.lon + 15), 0]).precision(0.2)
-        .fitExtent([[pad, pad + 16], [pane.w - pad, pane.h - pad]], pane.fit(home));
+        .fitExtent(pane.extent, pane.fit(home));
     if (GEO.world) {
         const path = d3.geoPath(pane.proj);
         pane.gBase.select('.map-land').attr('d', path(GEO.world.land));
         pane.gBase.select('.map-borders').attr('d', path(GEO.world.borders));
     }
+    // The land above was drawn at this "base" view; other views are an affine
+    // transform of it (fixed Mercator rotation), so zooming never re-projects land.
+    pane.base = { k: pane.proj.scale(), tx: pane.proj.translate()[0], ty: pane.proj.translate()[1] };
+    if (pane.anim) { pane.anim.stop(); pane.anim = null; }
+    geoApplyView(pane, pane.base);
+    pane.tighterSince = null;
+    pane.hadTarget = false;
+    if (pane.zoomTo) geoPaneZoom(pane, true);
+}
+
+/** A fresh projection with the pane's rotation (d3-geo projections have no copy()). */
+function geoProjLike(pane) {
+    return d3.geoMercator().rotate(pane.proj.rotate()).precision(pane.proj.precision());
+}
+
+function geoApplyView(pane, v) {
+    pane.view = v;
+    pane.proj.scale(v.k).translate([v.tx, v.ty]);
+    const b = pane.base, s = v.k / b.k;
+    pane.gBase.attr('transform', s === 1 && v.tx === b.tx && v.ty === b.ty ? null : `translate(${v.tx - b.tx * s},${v.ty - b.ty * s}) scale(${s})`);
+}
+
+/** Move the pane's view towards what zoomTo() asks for. Zooming out is
+ *  immediate; zooming in waits until the tighter view has held for a while. */
+function geoPaneZoom(pane, immediate = false) {
+    const target = pane.zoomTo(pane, geoHome());
+    // Waiting before zooming in only makes sense when narrowing an existing
+    // view (a far location dropped out), not when traffic first appears.
+    const hadTarget = pane.hadTarget;
+    pane.hadTarget = !!target;
+    let goal = pane.base;
+    if (target) {
+        const p = geoProjLike(pane).fitExtent(pane.extent, target);
+        goal = { k: p.scale(), tx: p.translate()[0], ty: p.translate()[1] };
+        if (goal.k < pane.base.k) goal = pane.base;      // never wider than all of Japan
+    }
+    const cur = pane.anim ? pane.goal : pane.view;
+    // Ignore small adjustments: the goal's centre is already near the middle
+    // of the current view and the scale barely changes.
+    const at = (v) => geoProjLike(pane).scale(v.k).translate([v.tx, v.ty]);
+    const centre = at(goal).invert([pane.w / 2, pane.h / 2]);
+    const q = at(cur)(centre);
+    const moved = Math.hypot(q[0] - pane.w / 2, q[1] - pane.h / 2) > pane.w * 0.06;
+    const rescaled = Math.abs(goal.k / cur.k - 1) > 0.08;
+    if (!moved && !rescaled) { pane.tighterSince = null; return; }
+    if (immediate) { geoApplyView(pane, goal); return; }
+    if (hadTarget && goal.k > cur.k * 1.08) {
+        const now = Date.now() / 1000;
+        if (pane.tighterSince === null) pane.tighterSince = now;
+        if (now - pane.tighterSince < ZOOM_IN_HOLD) return;
+    }
+    pane.tighterSince = null;
+    if (pane.anim) pane.anim.stop();
+    const interp = d3.interpolateObject({ ...pane.view }, goal);
+    pane.goal = goal;
+    pane.anim = d3.timer((elapsed) => {
+        const t = Math.min(1, elapsed / ZOOM_MS);
+        geoApplyView(pane, interp(d3.easeCubicInOut(t)));
+        geoDrawPane(pane);
+        if (t >= 1) { pane.anim.stop(); pane.anim = null; }
+    });
 }
 
 function geoResetBase() {
@@ -338,7 +414,8 @@ function geoRender(now = nowCapture()) {
     GEO.locs = GEO.enabled ? geoAggregate(now) : [];
     for (const pane of GEO.panes) {
         pane.locs = GEO.locs.filter(pane.filter).slice(0, MAP_MAX_LOCATIONS);
-        geoDrawPane(pane);
+        if (pane.zoomTo && pane.base) geoPaneZoom(pane);
+        if (!pane.anim) geoDrawPane(pane);
     }
     const countries = new Set(GEO.locs.map((l) => l.cc));
     const note = document.getElementById('geoNote');

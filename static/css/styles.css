@@ -19,8 +19,8 @@
     --s-lan: #2a78d6;
     --s-wan: #eb6834;
     --s-self: #1baf7a;
-    --land: #e9e8e2;
-    --land-border: #d2d0c7;
+    --land: #e2e0d8;
+    --land-border: #c6c4b9;
 
     /* status (reserved) */
     --good: #0ca30c;
@@ -198,9 +198,15 @@ main { padding: 16px 20px 40px; max-width: 1600px; margin: 0 auto; }
 .graph-box svg { width: 100%; height: 100%; display: block; cursor: grab; }
 .graph-box svg:active { cursor: grabbing; }
 .graph-empty { fill: var(--muted); font-size: 13px; }
-/* GeoIP map */
-#mapBox { overflow: hidden; border-radius: 8px; background: var(--surface); }
-#mapBox svg { cursor: default; }
+/* GeoIP map: world (70%) | Japan (30%) */
+.map-split { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); gap: 8px; height: 440px; }
+.map-pane { position: relative; overflow: hidden; border-radius: 8px; background: var(--surface); border: 1px solid var(--grid); min-width: 0; }
+.map-pane svg { width: 100%; height: 100%; display: block; }
+.map-caption {
+    position: absolute; top: 8px; left: 10px; z-index: 1; pointer-events: none;
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+    background: color-mix(in srgb, var(--surface) 80%, transparent); padding: 1px 6px; border-radius: 4px;
+}
 .map-land { fill: var(--land); }
 .map-borders { fill: none; stroke: var(--land-border); stroke-width: 0.7; vector-effect: non-scaling-stroke; }
 .map-arcs path { fill: none; stroke: var(--axis); stroke-opacity: 0.9; stroke-linecap: round; }
@@ -300,4 +306,5 @@ tr.flow-detail td { background: var(--surface-2); padding: 4px 10px 10px 34px; }
     .kpi-value { font-size: 20px; }
     .grid { grid-template-columns: minmax(0, 1fr); }
     .graph-box { height: 360px; }
+    .map-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: 240px 320px; height: auto; }
 }

@@ -38,6 +38,22 @@ impl Net {
         (prefix <= max).then_some(Net { addr, prefix })
     }
 
+    /// The network or broadcast address of an IPv4 subnet (/30 or larger):
+    /// valid destinations, but never the address of a device.
+    fn is_v4_subnet_edge(&self, ip: &IpAddr) -> bool {
+        match (self.addr, ip) {
+            (IpAddr::V4(net), IpAddr::V4(ip))
+                if self.prefix <= 30 && self.contains(&IpAddr::V4(*ip)) =>
+            {
+                let host_bits = u32::MAX >> self.prefix;
+                let ip = u32::from(*ip);
+                let base = u32::from(net) & !host_bits;
+                ip == base || ip == base | host_bits
+            }
+            _ => false,
+        }
+    }
+
     fn contains(&self, ip: &IpAddr) -> bool {
         match (self.addr, ip) {
             (IpAddr::V4(net), IpAddr::V4(ip)) => {
@@ -150,10 +166,13 @@ impl Classifier {
             return false;
         }
         if let IpAddr::V4(v4) = ip {
-            // Limited and (for the usual /24) subnet broadcast.
-            if v4.is_broadcast() || v4.octets()[3] == 255 {
+            if v4.is_broadcast() {
                 return false;
             }
+        }
+        // Subnet broadcast / network address of a LAN (e.g. 192.168.0.255 on a /24).
+        if self.lan.iter().any(|n| n.is_v4_subnet_edge(&ip)) {
+            return false;
         }
         self.lan.iter().any(|n| n.contains(&ip))
     }
@@ -305,6 +324,21 @@ mod tests {
         assert!(!c.is_lan_device("100.64.1.1"));
         assert!(c.is_lan_device("fe80::1234"));
         assert!(c.is_local("10.8.0.5")); // still "our side" for direction
+    }
+
+    #[test]
+    fn subnet_broadcast_and_network_addresses_are_not_devices() {
+        let c = classifier(); // LAN 192.168.0.0/24
+        assert!(!c.is_lan_device("192.168.0.255"));
+        assert!(!c.is_lan_device("192.168.0.0"));
+        assert!(c.is_lan_device("192.168.0.254"));
+        // Computed from the real prefix, not "last octet is 255".
+        let wide = Classifier::new(&["10.1.2.3/16".into()], &[]);
+        assert!(wide.is_lan_device("10.1.0.255"));
+        assert!(!wide.is_lan_device("10.1.255.255"));
+        let small = Classifier::new(&["10.9.9.1/25".into()], &[]);
+        assert!(!small.is_lan_device("10.9.9.127"));
+        assert!(small.is_lan_device("10.9.9.100"));
     }
 
     #[test]

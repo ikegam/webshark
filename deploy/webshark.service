@@ -1,0 +1,30 @@
+[Unit]
+Description=WebShark real-time packet visualizer
+Documentation=https://github.com/ikegam/webshark
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=webshark
+Group=webshark
+# dumpcap is restricted to the wireshark group and carries cap_net_raw/cap_net_admin.
+SupplementaryGroups=wireshark
+EnvironmentFile=-/etc/default/webshark
+# tshark keeps its preferences under $HOME; give it a private writable one.
+StateDirectory=webshark
+Environment=HOME=/var/lib/webshark
+ExecStart=/usr/local/bin/webshark
+Restart=on-failure
+RestartSec=3
+
+# Hardening. Options that imply NoNewPrivileges= are deliberately avoided:
+# they would stop dumpcap's file capabilities from taking effect.
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=no
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

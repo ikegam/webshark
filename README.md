@@ -57,6 +57,7 @@ The UI's own port is always excluded from capture.
 ```bash
 make deploy                                   # defaults: HOST=192.168.0.1 IFACE=enp3s0 LAN_IFACE=enp3s0
 make deploy HOST=10.0.0.1 IFACE=eth1 LAN_IFACE=eth1
+make data                                     # GeoIP + MAC vendor data (also refreshed monthly)
 make status | make logs | make undeploy
 ```
 
@@ -92,7 +93,8 @@ These are not bundled in the repository; they are loaded or downloaded at run ti
 
 | Component | Used for | License |
 |---|---|---|
-| [DB-IP IP to City Lite](https://db-ip.com/db/download/ip-to-city-lite) | GeoIP map (downloaded by `make geoip`) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — "IP Geolocation by DB-IP" is shown on the map |
+| [DB-IP IP to City Lite](https://db-ip.com/db/download/ip-to-city-lite) | GeoIP map (downloaded by `make data`) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — "IP Geolocation by DB-IP" is shown on the map |
+| [IEEE OUI registry](https://standards-oui.ieee.org/) | MAC address manufacturers in the LAN view (downloaded by `make data`) | IEEE public listing |
 | [world-atlas](https://github.com/topojson/world-atlas) / [Natural Earth](https://www.naturalearthdata.com/) | Map outlines | ISC / public domain |
 | [Chart.js](https://www.chartjs.org/) | Charts | MIT |
 | [D3](https://d3js.org/), [topojson-client](https://github.com/topojson/topojson-client) | Graph, map | ISC |

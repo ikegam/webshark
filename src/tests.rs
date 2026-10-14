@@ -15,10 +15,10 @@ mod tests {
     /// time|ip.src|ip.dst|ipv6.src|ipv6.dst|arp.src|arp.dst|protocols|len|
     /// tcp.srcport|tcp.dstport|udp.srcport|udp.dstport|tcp.flags|
     /// dns.qry.name|dns.a|dns.aaaa|tls.sni|http.host|eth.src|eth.dst|info
-    const INFO: usize = 21;
+    const INFO: usize = 32;
 
     fn line(fields: &[(usize, &str)]) -> String {
-        let mut cols = vec![""; 22];
+        let mut cols = vec![""; 33];
         cols[0] = "1.0";
         for &(i, v) in fields {
             cols[i] = v;
@@ -176,6 +176,73 @@ mod tests {
             ("192.168.0.1", "192.168.0.5")
         );
         assert_eq!(p.protocol, "ARP");
+    }
+
+    #[test]
+    fn test_parse_cdp_lldp_mdns_dhcp() {
+        let cdp = line(&[
+            (7, "eth:llc:cdp"),
+            (8, "400"),
+            (19, "B8:11:4B:53:0C:A6"),
+            (20, "01:00:0c:cc:cc:cc"),
+            (21, "APB811-4B53-0CA6"),
+            (22, "GigabitEthernet0"),
+            (23, "cisco AIR-AP2802I-Q-K9;PID:AIR-AP2802I-Q-K9"),
+        ]);
+        let p = parse_tshark_line(&cdp).unwrap();
+        assert_eq!(p.src_mac.as_deref(), Some("b8:11:4b:53:0c:a6"));
+        let l2 = p.l2.unwrap();
+        assert_eq!(
+            (l2.proto.as_str(), l2.name.as_deref(), l2.port.as_deref()),
+            ("CDP", Some("APB811-4B53-0CA6"), Some("GigabitEthernet0"))
+        );
+        assert_eq!(l2.platform.as_deref(), Some("cisco AIR-AP2802I-Q-K9"));
+
+        let lldp = line(&[
+            (7, "eth:ethertype:lldp"),
+            (8, "300"),
+            (19, "00:2c:c8:99:ad:7c"),
+            (25, "AP002C-C899-AD7C"),
+            (26, "Gi0"),
+            (27, "GigabitEthernet0"),
+            (
+                28,
+                "Cisco AP Software, ap3g3-k9w8 Version: 8.10.183.0\\nTechnical Support",
+            ),
+        ]);
+        let l2 = parse_tshark_line(&lldp).unwrap().l2.unwrap();
+        assert_eq!(
+            (l2.proto.as_str(), l2.port.as_deref()),
+            ("LLDP", Some("GigabitEthernet0"))
+        );
+        assert_eq!(
+            l2.platform.as_deref(),
+            Some("Cisco AP Software, ap3g3-k9w8 Version: 8.10.183.0")
+        );
+
+        let mdns = line(&[
+            (1, "192.168.0.108"),
+            (2, "224.0.0.251"),
+            (7, "eth:ethertype:ip:udp:mdns"),
+            (11, "5353"),
+            (12, "5353"),
+            (30, "LLLM.local;LLLM._ssh._tcp.local"),
+        ]);
+        assert_eq!(
+            parse_tshark_line(&mdns).unwrap().mdns_names,
+            vec!["LLLM.local", "LLLM._ssh._tcp.local"]
+        );
+
+        let dhcp = line(&[
+            (1, "192.168.0.131"),
+            (2, "192.168.0.1"),
+            (7, "eth:ethertype:ip:udp:dhcp"),
+            (31, "Pixel-Tablet"),
+        ]);
+        assert_eq!(
+            parse_tshark_line(&dhcp).unwrap().dhcp_hostname.as_deref(),
+            Some("Pixel-Tablet")
+        );
     }
 
     #[test]

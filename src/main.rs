@@ -2,7 +2,9 @@ mod capture;
 mod geo;
 mod handlers;
 mod history;
+mod lan;
 mod names;
+mod oui;
 mod types;
 mod utils;
 mod websocket;
@@ -38,7 +40,18 @@ async fn main() {
             geo::db_path().display()
         );
     }
-    tokio::spawn(geo::reload_task());
+    oui::reload_if_changed();
+    // Pick up replaced data files (GeoIP, OUI) without a restart.
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+            let _ = tokio::task::spawn_blocking(|| {
+                geo::reload_if_changed();
+                oui::reload_if_changed();
+            })
+            .await;
+        }
+    });
 
     // Resolve hostnames of LAN devices as they appear.
     tokio::spawn(names::resolver_task(stats.clone(), resolve_rx));
@@ -58,6 +71,7 @@ async fn main() {
         .route("/api/stats", get(handlers::stats_handler))
         .route("/api/names", get(handlers::names_handler))
         .route("/api/geo", axum::routing::post(handlers::geo_handler))
+        .route("/api/lan", get(handlers::lan_handler))
         .route(
             "/api/filter",
             get(handlers::filter_handler).post(handlers::set_filter_handler),

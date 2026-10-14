@@ -16,6 +16,7 @@
         </div>
         <nav class="tabs" role="tablist" aria-label="表示切替">
             <button class="tab active" role="tab" id="tab-dash" aria-controls="view-dash" aria-selected="true" data-view="dash">ダッシュボード</button>
+            <button class="tab" role="tab" id="tab-lan" aria-controls="view-lan" aria-selected="false" data-view="lan">LAN構成</button>
             <button class="tab" role="tab" id="tab-flows" aria-controls="view-flows" aria-selected="false" data-view="flows">フロー <span class="count" id="flowCount">0</span></button>
             <button class="tab" role="tab" id="tab-packets" aria-controls="view-packets" aria-selected="false" data-view="packets">パケット</button>
             <button class="tab" role="tab" id="tab-alerts" aria-controls="view-alerts" aria-selected="false" data-view="alerts">アラート <span class="count" id="alertCount">0</span></button>
@@ -134,6 +135,11 @@
             </div>
         </section>
 
+        <!-- LAN layout -->
+        <section class="view" id="view-lan" role="tabpanel" aria-labelledby="tab-lan" hidden>
+            <div id="lanRoot"><div class="lan-empty">読み込み中…</div></div>
+        </section>
+
         <!-- Flows -->
         <section class="view" id="view-flows" role="tabpanel" aria-labelledby="tab-flows" hidden>
             <article class="panel">
@@ -209,6 +215,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
     <script src="/static/js/geo.js"></script>
+    <script src="/static/js/lan.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/ws.js"></script>
 </body>

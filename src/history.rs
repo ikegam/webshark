@@ -113,18 +113,29 @@ impl Classifier {
     /// i.e. something worth looking up a hostname for.
     pub fn lan_device_v4(&self, addr: &str) -> Option<std::net::Ipv4Addr> {
         let v4: std::net::Ipv4Addr = addr.parse().ok()?;
-        let ip = IpAddr::V4(v4);
-        if v4.is_unspecified() || v4.is_multicast() || v4.is_broadcast() || v4.is_loopback() {
-            return None;
+        self.is_lan_device(addr).then_some(v4)
+    }
+
+    /// A unicast address of some other machine on our side of the gateway
+    /// (IPv4 or IPv6; not us, not multicast/broadcast/unspecified).
+    pub fn is_lan_device(&self, addr: &str) -> bool {
+        let Ok(ip) = addr.split('%').next().unwrap_or("").parse::<IpAddr>() else {
+            return false;
+        };
+        if ip.is_unspecified()
+            || ip.is_multicast()
+            || ip.is_loopback()
+            || self.self_ips.contains(&ip)
+        {
+            return false;
         }
-        if self.self_ips.contains(&ip) || !self.nets.iter().any(|n| n.contains(&ip)) {
-            return None;
+        if let IpAddr::V4(v4) = ip {
+            // Limited and (for the usual /24) subnet broadcast.
+            if v4.is_broadcast() || v4.octets()[3] == 255 {
+                return false;
+            }
         }
-        // Skip the subnet broadcast address (e.g. 192.168.0.255).
-        if v4.octets()[3] == 255 {
-            return None;
-        }
-        Some(v4)
+        self.nets.iter().any(|n| n.contains(&ip))
     }
 
     pub fn direction(&self, src: &str, dst: &str) -> Direction {

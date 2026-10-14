@@ -177,6 +177,17 @@ async fn capture_packets(
         "http.host",
         "eth.src",
         "eth.dst",
+        "cdp.deviceid",
+        "cdp.portid",
+        "cdp.platform",
+        "cdp.native_vlan",
+        "lldp.tlv.system.name",
+        "lldp.port.id",
+        "lldp.port.desc",
+        "lldp.tlv.system.desc",
+        "lldp.mgn.addr.ip4",
+        "dns.resp.name",
+        "dhcp.option.hostname",
         "_ws.col.Info",
     ] {
         args.push("-e".into());
@@ -239,6 +250,7 @@ async fn capture_packets(
     // LAN addresses already handed to the name resolver during this run.
     let mut requested: std::collections::HashSet<std::net::Ipv4Addr> =
         std::collections::HashSet::new();
+    let own_macs = crate::lan::own_macs();
 
     // Both tools report errors (bad interface, permissions, ...) and status on
     // stderr. It must be drained: an unread pipe eventually fills and blocks
@@ -257,6 +269,17 @@ async fn capture_packets(
                                 stats.total_packets += 1;
                                 let dir = classifier.direction(&packet.src_ip, &packet.dst_ip);
                                 stats.history.add(packet.timestamp, dir, packet.length);
+                                stats.lan.observe(&packet, &classifier, &own_macs);
+                                // mDNS answers name the responder's own addresses.
+                                if packet.src_port == Some(5353) {
+                                    if let Some(name) = &packet.dns_name {
+                                        for addr in &packet.dns_addrs {
+                                            if classifier.is_lan_device(addr) && (stats.lan_names.len() < 4096 || stats.lan_names.contains_key(addr)) {
+                                                stats.lan_names.insert(addr.clone(), name.clone());
+                                            }
+                                        }
+                                    }
+                                }
                                 *stats.protocols.entry(packet.protocol.clone()).or_insert(0) += 1;
                                 *stats.top_sources.entry(packet.src_ip.clone()).or_insert(0) += 1;
                                 *stats.top_destinations.entry(packet.dst_ip.clone()).or_insert(0) += 1;

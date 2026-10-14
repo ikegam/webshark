@@ -362,7 +362,11 @@ function sizeBin(len) {
     return 6;
 }
 
+/** Individual (not multicast/broadcast) MAC address: group bit clear. */
+const isUnicastMac = (mac) => !!mac && (parseInt(mac.slice(0, 2), 16) & 1) === 0;
+
 function touchDevice(ip, mac, t, len, side, dir) {
+    if (mac && !isUnicastMac(mac)) mac = null;
     // The router's own interfaces (any of its addresses) are not LAN devices.
     if (mac && S.selfMacs.has(mac)) return;
     const key = mac || S.ipToDevice.get(ip) || `ip:${ip}`;
@@ -1012,6 +1016,8 @@ function setView(view) {
         v.hidden = !on;
     }
     if (view === 'alerts') renderAlerts();
+    lanSetActive(view === 'lan');
+    if (view === 'lan') lanRender();
     updateMapActivity();
     try { history.replaceState(null, '', `#${view}`); } catch { /* ignore */ }
     render();
@@ -1088,6 +1094,7 @@ function init() {
     makeCharts();
     setupGraph();
     geoInit();
+    lanInit();
 
     for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => setView(tab.dataset.view));
     for (const btn of document.querySelectorAll('#graphModeSeg button')) {
@@ -1108,7 +1115,11 @@ function init() {
         try { localStorage.setItem('webshark-theme', next); } catch { /* ignore */ }
         applyTheme(next);
     });
-    $('search').addEventListener('input', (e) => { S.search = e.target.value.trim().toLowerCase(); render(); });
+    $('search').addEventListener('input', (e) => {
+        S.search = e.target.value.trim().toLowerCase();
+        render();
+        if (S.view === 'lan') lanRender();
+    });
     $('activeOnly').addEventListener('change', render);
     $('filterForm').addEventListener('submit', (e) => { e.preventDefault(); applyFilter($('filterInput').value.trim()); });
     $('filterReset').addEventListener('click', () => { $('filterInput').value = ''; applyFilter(''); });
@@ -1133,7 +1144,7 @@ function init() {
 
     document.addEventListener('keydown', (e) => {
         const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName);
-        if (e.altKey && /^[1-4]$/.test(e.key)) { e.preventDefault(); setView(['dash', 'flows', 'packets', 'alerts'][Number(e.key) - 1]); return; }
+        if (e.altKey && /^[1-5]$/.test(e.key)) { e.preventDefault(); setView(['dash', 'lan', 'flows', 'packets', 'alerts'][Number(e.key) - 1]); return; }
         if (typing) { if (e.key === 'Escape') document.activeElement.blur(); return; }
         if (e.key === '/') { e.preventDefault(); $('search').focus(); }
         else if (e.key === ' ') { e.preventDefault(); setPaused(!S.paused); }
@@ -1145,7 +1156,7 @@ function init() {
     setGraphMode(mode);
 
     const initial = location.hash.slice(1);
-    setView(['dash', 'flows', 'packets', 'alerts'].includes(initial) ? initial : 'dash');
+    setView(['dash', 'lan', 'flows', 'packets', 'alerts'].includes(initial) ? initial : 'dash');
     loadFilter();
     renderAlertBadge();
     setInterval(render, 1000);

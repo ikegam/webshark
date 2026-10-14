@@ -199,7 +199,40 @@ fn parse_flags(field: &str) -> Option<u16> {
 
 /// Number of `|`-separated fields tshark emits; must match the `-e` list in
 /// capture.rs. `_ws.col.Info` is last so a `|` inside it cannot shift fields.
-pub const FIELD_COUNT: usize = 22;
+pub const FIELD_COUNT: usize = 33;
+
+/// First line of a field tshark printed with escaped newlines ("a\\nb").
+fn first_line(v: Option<String>) -> Option<String> {
+    v.and_then(|s| s.split("\\n").next().map(|l| l.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+/// CDP / LLDP fields: cdp.deviceid, cdp.portid, cdp.platform, cdp.native_vlan,
+/// lldp.system.name, lldp.port.id, lldp.port.desc, lldp.system.desc, lldp.mgn.addr.ip4
+fn parse_l2(f: &[&str]) -> Option<crate::lan::L2Info> {
+    let v = |i: usize| f.get(i).and_then(|s| opt_value(s));
+    if let Some(name) = v(0) {
+        return Some(crate::lan::L2Info {
+            proto: "CDP".into(),
+            name: Some(name),
+            port: v(1),
+            platform: first_line(v(2)),
+            vlan: v(3),
+            mgmt: None,
+        });
+    }
+    if v(4).is_some() || v(5).is_some() {
+        return Some(crate::lan::L2Info {
+            proto: "LLDP".into(),
+            name: v(4),
+            port: v(6).or_else(|| v(5)),
+            platform: first_line(v(7)),
+            vlan: None,
+            mgmt: v(8),
+        });
+    }
+    None
+}
 
 pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     let parts: Vec<&str> = line.splitn(FIELD_COUNT, '|').collect();
@@ -231,12 +264,21 @@ pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         opt_value(parts[14])
     };
     let server_name = opt_value(parts[17]).or_else(|| opt_value(parts[18]));
-    let src_mac = opt_value(parts[19]);
-    let dst_mac = opt_value(parts[20]);
-    let info = if parts[21].is_empty() {
+    let src_mac = opt_value(parts[19]).map(|m| m.to_ascii_lowercase());
+    let dst_mac = opt_value(parts[20]).map(|m| m.to_ascii_lowercase());
+    let l2 = parse_l2(&parts[21..30]);
+    let mdns_names: Vec<String> = parts[30]
+        .split(AGGREGATOR)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .take(64)
+        .map(str::to_string)
+        .collect();
+    let dhcp_hostname = opt_value(parts[31]);
+    let info = if parts[32].is_empty() {
         "Unknown".to_string()
     } else {
-        parts[21].to_string()
+        parts[32].to_string()
     };
 
     Some(PacketInfo {
@@ -254,6 +296,9 @@ pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         server_name,
         src_mac,
         dst_mac,
+        mdns_names,
+        dhcp_hostname,
+        l2,
         length,
         info,
     })

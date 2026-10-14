@@ -18,12 +18,13 @@ mod tests {
     const INFO: usize = 32;
 
     fn line(fields: &[(usize, &str)]) -> String {
-        let mut cols = vec![""; 33];
-        cols[0] = "1.0";
+        let mut cols = vec![String::new(); 33];
+        cols[0] = "1.0".into();
         for &(i, v) in fields {
-            cols[i] = v;
+            // ';' in fixtures stands for tshark's occurrence aggregator.
+            cols[i] = v.replace(';', "\x1e");
         }
-        cols.join("|")
+        cols.join("\x1f")
     }
 
     #[test]
@@ -123,8 +124,12 @@ mod tests {
             (2, "192.168.0.108;8.8.8.8"),
             (7, "eth:ethertype:ip:icmp:ip:udp:dns"),
             (8, "98"),
-            (11, ";53000"),
-            (12, ";53"),
+            // With occurrence=a only existing occurrences are listed, so the
+            // quoted packet's ports appear without a leading separator.
+            (11, "53000"),
+            (12, "53"),
+            (14, "x.example"),
+            (15, "1.2.3.4"),
             (INFO, "Destination unreachable"),
         ]);
         let p = parse_tshark_line(&l).unwrap();
@@ -134,7 +139,9 @@ mod tests {
         );
         assert_eq!(p.protocol, "ICMP");
         assert_eq!(p.app, "icmp");
+        // Ports/DNS of the quoted packet must not be attributed to the ICMP error.
         assert_eq!((p.src_port, p.dst_port), (None, None));
+        assert!(p.dns_addrs.is_empty() && p.dns_name.is_none());
     }
 
     #[test]
@@ -246,6 +253,33 @@ mod tests {
     }
 
     #[test]
+    fn test_separator_in_free_text_cannot_shift_fields() {
+        // A '|' in an HTTP Host / SNI must not move the MAC columns.
+        let l = line(&[
+            (1, "192.168.0.108"),
+            (2, "93.184.216.34"),
+            (7, "eth:ethertype:ip:tcp:http"),
+            (8, "300"),
+            (18, "a|b"),
+            (19, "68:24:99:1e:4d:47"),
+            (20, "32:01:02:44:1c:80"),
+            (INFO, "GET /"),
+        ]);
+        let p = parse_tshark_line(&l).unwrap();
+        assert_eq!(p.server_name.as_deref(), Some("a|b"));
+        assert_eq!(p.src_mac.as_deref(), Some("68:24:99:1e:4d:47"));
+        // Anything that is not a MAC address is ignored.
+        let bad = line(&[
+            (1, "192.168.0.108"),
+            (2, "8.8.8.8"),
+            (7, "eth:ip:udp"),
+            (8, "60"),
+            (19, "b"),
+        ]);
+        assert_eq!(parse_tshark_line(&bad).unwrap().src_mac, None);
+    }
+
+    #[test]
     fn test_parse_rejects_short_line() {
         assert!(parse_tshark_line("1.0|a|b|c").is_none());
     }
@@ -263,11 +297,13 @@ mod tests {
 
     #[test]
     fn test_build_capture_filter_excludes_ui_port() {
-        assert_eq!(build_capture_filter(None, 3000), "not tcp port 3000");
-        assert_eq!(build_capture_filter(Some("  "), 3000), "not tcp port 3000");
+        let any: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
+        let lan: std::net::SocketAddr = "192.168.0.1:8080".parse().unwrap();
+        assert_eq!(build_capture_filter(None, any), "not tcp port 3000");
+        assert_eq!(build_capture_filter(Some("  "), any), "not tcp port 3000");
         assert_eq!(
-            build_capture_filter(Some("udp or icmp"), 8080),
-            "(udp or icmp) and not tcp port 8080"
+            build_capture_filter(Some("udp or icmp"), lan),
+            "(udp or icmp) and not (host 192.168.0.1 and tcp port 8080)"
         );
     }
 

@@ -1,9 +1,11 @@
+mod access;
 mod capture;
 mod geo;
 mod handlers;
 mod history;
 mod lan;
 mod names;
+mod netinfo;
 mod oui;
 mod types;
 mod utils;
@@ -31,6 +33,10 @@ async fn main() {
     let (tx, _rx) = broadcast::channel(1000);
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (resolve_tx, resolve_rx) = mpsc::unbounded_channel();
+
+    // Network configuration (own addresses, LAN networks), kept fresh.
+    netinfo::refresh();
+    tokio::spawn(netinfo::refresh_task());
 
     // GeoIP database (optional): load now, pick up replacements later.
     geo::reload_if_changed();
@@ -78,12 +84,19 @@ async fn main() {
         )
         .route("/ws", get(websocket::websocket_handler))
         .route("/static/*path", get(handlers::static_handler))
+        .layer(axum::middleware::from_fn(access::check_host))
         .with_state((stats, filter, tx, cmd_tx));
 
     // Bind address is configurable via WEBSHARK_BIND. Default to loopback so the
     // server is never accidentally exposed on a WAN interface when run on a
     // gateway/router. Set e.g. WEBSHARK_BIND=192.168.0.1:3000 to serve the LAN.
-    let bind_addr = std::env::var("WEBSHARK_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    if let Ok(v) = std::env::var("WEBSHARK_BIND") {
+        if v.parse::<std::net::SocketAddr>().is_err() {
+            error!("WEBSHARK_BIND={:?} is not an IP:port address", v);
+            std::process::exit(1);
+        }
+    }
+    let bind_addr = capture::ui_bind();
 
     info!(
         "Starting packet visualization server... http://{}",

@@ -12,6 +12,7 @@ const FLOW_IDLE_EXPIRE = 300;      // drop flows idle this long (s)
 const MAX_FLOWS = 4000;
 const MAX_REMOTES = 3000;
 const MAX_NAMES = 8000;
+const MAX_DEVICES = 2000;
 const MAX_LOG = 500;
 const FLOW_RECENT = 40;            // packets kept per flow for the detail view
 const ACTIVE_WINDOW = 60;          // "active" flow = seen in last N s
@@ -65,6 +66,8 @@ const S = {
     dropped: 0,
     secs: new Map(),         // sec -> {down, up, int, pkts}
     devices: new Map(),      // deviceKey -> device
+    knownDevices: new Set(), // device keys ever seen (kept across "clear")
+    baseT: null,             // first packet ever (not reset by "clear")
     ipToDevice: new Map(),   // ip -> deviceKey
     selfMacs: new Set(),
     remotes: new Map(),      // ip -> {bytes, last}
@@ -187,14 +190,20 @@ function inNets(ip, nets) {
     return false;
 }
 const classCache = new Map();
-/** 'self' | 'mcast' | 'lan' | 'wan' | 'none' */
+const LINK_LOCAL = ['169.254.0.0/16', 'fe80::/10'].map(parseCidr);
+/**
+ * 'self' | 'mcast' | 'lan' (a device on our LAN) | 'priv' (private/local
+ * range beyond the gateway, e.g. VPN or CGNAT) | 'wan' | 'none'
+ * Mirrors Classifier in src/history.rs.
+ */
 function classify(ip) {
     let c = classCache.get(ip);
     if (c) return c;
     if (!ip || ip === 'Unknown' || ip === '0.0.0.0' || ip === '::') c = 'none';
     else if (S.selfIps.has(ip)) c = 'self';
     else if (inNets(ip, MULTICAST)) c = 'mcast';
-    else if (inNets(ip, S.lanNets) || inNets(ip, BUILTIN_LOCAL)) c = 'lan';
+    else if (S.lanNets.length ? inNets(ip, S.lanNets) || inNets(ip, LINK_LOCAL) : inNets(ip, BUILTIN_LOCAL)) c = 'lan';
+    else if (inNets(ip, BUILTIN_LOCAL)) c = 'priv';
     else c = 'wan';
     if (classCache.size > 20000) classCache.clear();
     classCache.set(ip, c);
@@ -269,21 +278,26 @@ function hostLabel(ip) {
 }
 
 // ---------- Ingest ----------
+/** Own addresses / LAN networks; sent at connect and again when they change. */
+function setNetwork(net) {
+    S.selfIps = new Set(net.local_ips || []);
+    S.lanNets = (net.lan_nets || []).map((n) => parseCidr(n.cidr)).filter(Boolean);
+    S.hostname = net.hostname || '';
+    classCache.clear();
+}
+
 function setContext(ctx) {
     S.protocols = ctx.protocols || [];
-    S.selfIps = new Set(ctx.local_ips || []);
-    S.lanNets = (ctx.lan_nets || []).map((n) => parseCidr(n.cidr)).filter(Boolean);
-    S.hostname = ctx.hostname || '';
+    setNetwork(ctx);
     mergeLanNames(ctx.lan_names);
     geoSetContext(ctx.geo);
-    classCache.clear();
     // Seed throughput history recorded by the server before we connected.
     for (const [sec, down, up, int, pkts] of ctx.history || []) {
         if (!S.secs.has(sec)) S.secs.set(sec, { down, up, int, pkts });
     }
     if (ctx.history && ctx.history.length) {
         const last = ctx.history[ctx.history.length - 1][0];
-        if (S.skew === null) S.skew = Date.now() / 1000 - (last + 3);
+        if (S.skew === null) S.skew = Date.now() / 1000 - (last + 1);
     }
     $('hostLabel').textContent = S.hostname ? `@ ${S.hostname}` : '';
     document.title = S.hostname ? `WebShark · ${S.hostname}` : 'WebShark';
@@ -308,6 +322,7 @@ function ingest(p) {
     const len = p.l || 0;
     const l4 = S.protocols[p.p] || '';
     if (S.firstT === null) S.firstT = t;
+    if (S.baseT === null) S.baseT = t;
     S.totalPkts++;
 
     // DNS / mDNS answers and TLS SNI / HTTP Host give us names for addresses.
@@ -374,11 +389,20 @@ function touchDevice(ip, mac, t, len, side, dir) {
     if (!dev) {
         dev = { key, mac: mac || null, ips: new Set(), up: 0, down: 0, int: 0, pkts: 0, first: t, last: t, upRing: new Float64Array(10), ringSec: Math.floor(t) };
         S.devices.set(key, dev);
-        if (S.firstT !== null && t - S.firstT > 60) {
-            raise('info', `new-dev:${key}`, '新しいデバイス', `${mac ? `MAC ${mac} / ` : ''}${ip} が初めて通信しました`, t, 24 * 3600);
+        if (S.devices.size > MAX_DEVICES) pruneDevices();
+        // "Known" survives clearing the view, so clearing does not make every
+        // quiet device look new; only devices first seen after a warm-up alert.
+        if (!S.knownDevices.has(key)) {
+            if (S.baseT !== null && t - S.baseT > 60) {
+                raise('info', `new-dev:${key}`, '新しいデバイス', `${mac ? `MAC ${mac} / ` : ''}${ip} が初めて通信しました`, t, 24 * 3600);
+            }
+            S.knownDevices.add(key);
+            if (S.knownDevices.size > MAX_DEVICES * 4) S.knownDevices.clear();
         }
     }
-    if (!dev.ips.has(ip)) { dev.ips.add(ip); S.ipToDevice.set(ip, key); }
+    dev.ips.add(ip);
+    if (dev.ips.size > 16) dev.ips.delete(dev.ips.values().next().value);
+    S.ipToDevice.set(ip, key);
     dev.last = t;
     dev.pkts++;
     if (dir === 'int') dev.int += len;
@@ -396,6 +420,14 @@ function touchDevice(ip, mac, t, len, side, dir) {
         if (sum >= 50e6) {
             raise('warning', `upload:${key}`, '大量アップロード', `${deviceLabel(dev)} が10秒間に ${fmtBytes(sum)} を外部へ送信しています`, t, 300);
         }
+    }
+}
+
+function pruneDevices() {
+    const old = [...S.devices.values()].sort((a, b) => a.last - b.last).slice(0, S.devices.size - MAX_DEVICES * 0.8);
+    for (const d of old) {
+        S.devices.delete(d.key);
+        for (const ip of d.ips) if (S.ipToDevice.get(ip) === d.key) S.ipToDevice.delete(ip);
     }
 }
 
@@ -417,7 +449,9 @@ function pruneRemotes() {
 function touchFlow(p, l4, app, t, len) {
     if (p.s === 'Unknown' && p.d === 'Unknown') return null;
     const a = `${p.s}#${p.sP ?? ''}`, b = `${p.d}#${p.dP ?? ''}`;
-    const key = `${l4}|${app}|${a < b ? `${a}|${b}` : `${b}|${a}`}`;
+    // The app label is not part of the key: for unlisted ports it comes from
+    // the per-packet dissector and would split one connection in two.
+    const key = `${l4}|${a < b ? `${a}|${b}` : `${b}|${a}`}`;
     let f = S.flows.get(key);
     if (!f) {
         // Orient the flow: "local" is the LAN side; for LAN<->LAN it is the initiator.
@@ -432,12 +466,21 @@ function touchFlow(p, l4, app, t, len) {
         S.flows.set(key, f);
         if (S.flows.size > MAX_FLOWS) pruneFlows(t, true);
     }
+    if (isGenericApp(f.app) && !isGenericApp(app)) f.app = app;
     const fromLocal = p.s === f.local.ip && (p.sP ?? null) === (f.local.port ?? null);
     if (fromLocal) f.up += len; else f.down += len;
     f.pkts++;
     f.last = t;
+    // Per-second [up, down] bytes for rates and the map; trimmed as we go so
+    // long-lived flows cannot grow it without bound.
     const sec = Math.floor(t);
-    f.win.set(sec, (f.win.get(sec) || 0) + len);
+    let w = f.win.get(sec);
+    if (!w) {
+        w = [0, 0];
+        f.win.set(sec, w);
+        for (const k of f.win.keys()) { if (k >= sec - GRAPH_WINDOW - 2) break; f.win.delete(k); }
+    }
+    w[fromLocal ? 0 : 1] += len;
     if (p.f !== undefined && (p.f & 0x05)) f.closed = true;   // FIN or RST
     return f;
 }
@@ -450,14 +493,17 @@ function pruneFlows(now, force = false) {
         for (const f of sorted.slice(0, S.flows.size - MAX_FLOWS * 0.8)) { S.flows.delete(f.key); S.expanded.delete(f.id); }
     }
 }
-function flowWindowBytes(f, now, seconds) {
-    let sum = 0;
-    for (const [sec, v] of f.win) {
-        if (sec < now - GRAPH_WINDOW - 2) f.win.delete(sec);
-        else if (sec >= now - seconds) sum += v;
+const isGenericApp = (a) => /^(TCP|UDP)( その他)?$|^その他$/.test(a);
+
+/** Bytes of the last `seconds` complete seconds (the current one is partial). */
+function flowWindow(f, nowSec, seconds) {
+    let up = 0, down = 0;
+    for (const [sec, w] of f.win) {
+        if (sec >= nowSec - seconds && sec < nowSec) { up += w[0]; down += w[1]; }
     }
-    return sum;
+    return { up, down, total: up + down };
 }
+const flowWindowBytes = (f, nowSec, seconds) => flowWindow(f, nowSec, seconds).total;
 
 // ---------- Detection ----------
 function raise(sev, key, title, detail, t, cooldown = 300) {
@@ -777,6 +823,7 @@ function graphTick() {
 
 function graphNodeOf(ip) {
     const c = classify(ip);
+    if (c === 'none') return null;   // 0.0.0.0, ::, non-IP
     if (c === 'self') return { id: 'self', kind: 'self', label: S.hostname || 'router', title: hostLabel(ip) };
     if (c === 'lan') {
         const key = S.ipToDevice.get(ip) || `ip:${ip}`;
@@ -795,7 +842,7 @@ function renderGraph(now) {
         const bytes = flowWindowBytes(f, Math.floor(now), GRAPH_WINDOW);
         if (!bytes) continue;
         const a = graphNodeOf(f.local.ip), b = graphNodeOf(f.remote.ip);
-        if (a.id === b.id) continue;
+        if (!a || !b || a.id === b.id) continue;
         if (f.name && b.kind === 'wan') { b.label = f.name; b.title = `${f.name}\n${f.remote.ip}`; }
         meta.set(a.id, a); meta.set(b.id, b);
         const k = a.id < b.id ? `${a.id}\u0000${b.id}` : `${b.id}\u0000${a.id}`;
@@ -855,7 +902,14 @@ function renderGraph(now) {
 
     graph.sim.nodes(nodes);
     graph.sim.force('link').links(links);
-    graph.sim.alpha(Math.max(graph.sim.alpha(), 0.25)).restart();
+    // Re-heat only when the topology changed; otherwise let it settle and stop.
+    const sig = `${nodes.map((n) => n.id).sort().join(',')}|${top.map((e) => e[0]).sort().join(',')}`;
+    if (sig !== graph.sig) {
+        graph.sig = sig;
+        graph.sim.alpha(Math.max(graph.sim.alpha(), 0.25)).restart();
+    } else {
+        graphTick();
+    }
 }
 
 // ---------- Tooltip ----------
@@ -967,11 +1021,13 @@ function renderAlerts() {
 }
 
 // ---------- Render loop ----------
-function render() {
+/** `force`: draw the visible view even while paused (tab switch, search...). */
+function render(force = false) {
     const now = nowCapture();
     pruneFlows(now);
+    for (const [k, t] of S.cooldown) if (now - t > 2 * 86400) S.cooldown.delete(k);
     renderKpis(now);
-    if (S.paused) return;
+    if (S.paused && !force) return;
     if (S.view === 'dash') {
         renderThroughput(now);
         renderDevices(now);
@@ -997,7 +1053,7 @@ function setGraphMode(mode) {
     try { localStorage.setItem('webshark-graph-mode', mode); } catch { /* ignore */ }
     if (mode === 'graph') resizeGraph(); else geoResetBase();
     updateMapActivity();
-    render();
+    render(true);
 }
 function updateMapActivity() {
     geoSetActive(S.view === 'dash' && S.graphMode === 'map' && !S.paused);
@@ -1020,7 +1076,7 @@ function setView(view) {
     if (view === 'lan') lanRender();
     updateMapActivity();
     try { history.replaceState(null, '', `#${view}`); } catch { /* ignore */ }
-    render();
+    render(true);
 }
 
 function setPaused(p) {
@@ -1040,7 +1096,7 @@ function clearData() {
     });
     graph.nodes = new Map();
     renderAlertBadge();
-    render();
+    render(true);
 }
 
 function setConnState(state, text) {
@@ -1082,7 +1138,7 @@ function applyTheme(theme) {
     if (theme) document.documentElement.dataset.theme = theme;
     else delete document.documentElement.dataset.theme;
     for (const c of Object.values(charts)) c.update('none');
-    render();
+    render(true);
 }
 
 function init() {
@@ -1104,7 +1160,7 @@ function init() {
         btn.addEventListener('click', () => {
             S.range = Number(btn.dataset.range);
             for (const b of document.querySelectorAll('.seg button[data-range]')) b.classList.toggle('on', b === btn);
-            render();
+            render(true);
         });
     }
     $('pauseBtn').addEventListener('click', () => setPaused(!S.paused));
@@ -1117,10 +1173,10 @@ function init() {
     });
     $('search').addEventListener('input', (e) => {
         S.search = e.target.value.trim().toLowerCase();
-        render();
+        render(true);
         if (S.view === 'lan') lanRender();
     });
-    $('activeOnly').addEventListener('change', render);
+    $('activeOnly').addEventListener('change', () => render(true));
     $('filterForm').addEventListener('submit', (e) => { e.preventDefault(); applyFilter($('filterInput').value.trim()); });
     $('filterReset').addEventListener('click', () => { $('filterInput').value = ''; applyFilter(''); });
     $('alertsClear').addEventListener('click', () => { for (const a of S.alerts) a.unread = false; renderAlertBadge(); renderAlerts(); });
@@ -1131,7 +1187,7 @@ function init() {
             S.sort = { col, dir: S.sort.col === col ? -S.sort.dir : (['app', 'local', 'remote'].includes(col) ? 1 : -1) };
             for (const h of document.querySelectorAll('#flowsTable th')) h.classList.remove('sorted', 'asc', 'desc');
             th.classList.add('sorted', S.sort.dir > 0 ? 'asc' : 'desc');
-            render();
+            render(true);
         });
     }
     $('flowsTable').tBodies[0].addEventListener('click', (e) => {

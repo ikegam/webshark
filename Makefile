@@ -18,7 +18,6 @@ TARGET    := x86_64-unknown-linux-musl
 BIN       := target/$(TARGET)/release/webshark
 SSH       ?= ssh
 SCP       ?= scp
-STAGE     := /tmp/webshark-deploy
 
 .PHONY: all build test fmt-check check deploy remote-install firewall data geoip status logs undeploy clean
 
@@ -35,14 +34,22 @@ fmt-check:
 
 check: test build
 
+# Files are staged in a private directory made by `mktemp -d` on the target
+# (mode 0700, owned by the SSH user): a fixed /tmp path could be pre-created
+# by another local user, who could then swap in a script that gets installed
+# and run as root.
 deploy: check
-	$(SSH) $(HOST) 'mkdir -p $(STAGE)'
-	$(SCP) $(BIN) deploy/webshark.service deploy/webshark-data-update deploy/webshark-data.service deploy/webshark-data.timer $(HOST):$(STAGE)/
-	sed -e 's|@BIND@|$(BIND)|' -e 's|@IFACE@|$(IFACE)|' deploy/webshark.env | $(SSH) $(HOST) 'cat > $(STAGE)/webshark.env'
-	$(MAKE) --no-print-directory remote-install firewall
+	@stage=$$($(SSH) $(HOST) 'mktemp -d /tmp/webshark-deploy.XXXXXXXX') && test -n "$$stage" && \
+	  echo "staging in $(HOST):$$stage" && \
+	  { $(SCP) $(BIN) deploy/webshark.service deploy/webshark-data-update deploy/webshark-data.service deploy/webshark-data.timer $(HOST):$$stage/ && \
+	    sed -e 's|@BIND@|$(BIND)|' -e 's|@IFACE@|$(IFACE)|' deploy/webshark.env | $(SSH) $(HOST) "cat > $$stage/webshark.env" && \
+	    $(MAKE) --no-print-directory remote-install STAGE=$$stage; } || \
+	  { $(SSH) $(HOST) "rm -rf $$stage"; echo "deploy failed; removed $$stage" >&2; exit 1; }
+	$(MAKE) --no-print-directory firewall
 	@echo "==> WebShark: http://$(BIND)/"
 
 remote-install:
+	@test -n "$(STAGE)" || { echo "STAGE is not set (use make deploy)" >&2; exit 1; }
 	$(SSH) $(HOST) 'set -e; \
 	  command -v tshark >/dev/null || { echo "tshark is not installed on $(HOST)" >&2; exit 1; }; \
 	  id webshark >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin webshark; \

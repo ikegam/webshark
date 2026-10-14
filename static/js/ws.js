@@ -31,6 +31,7 @@
                 let msg;
                 try { msg = JSON.parse(event.data); } catch { return; }
                 if (msg.type === 'ctx') setContext(msg);
+                else if (msg.type === 'net') setNetwork(msg);
                 else if (msg.type === 'dropped') noteDropped(msg.count || 0);
                 return;
             }

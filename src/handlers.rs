@@ -141,7 +141,7 @@ pub fn filter_compile_result(stdout: &str, stderr: &str) -> Result<(), String> {
 /// compiler's error message if the filter is invalid. If dumpcap cannot be run
 /// at all (e.g. not installed), the check is skipped.
 async fn compile_capture_filter(filter: &str) -> Result<(), String> {
-    let iface = std::env::var("WEBSHARK_IFACE").unwrap_or_else(|_| "any".to_string());
+    let iface = crate::capture::capture_iface();
     let child = tokio::process::Command::new("dumpcap")
         .args(["-i", &iface, "-f", filter, "-d"])
         .stdout(Stdio::piped())

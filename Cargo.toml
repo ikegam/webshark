@@ -2,6 +2,13 @@
 name = "webshark"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Real-time network traffic dashboard for Linux gateways, powered by tshark"
+license = "BSD-4-Clause"
+repository = "https://github.com/ikegam/webshark"
+readme = "README.md"
+keywords = ["network", "monitoring", "tshark", "wireshark", "dashboard"]
+categories = ["command-line-utilities", "network-programming", "visualization"]
 
 [dependencies]
 axum = { version = "0.7", features = ["ws"] }

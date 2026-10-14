@@ -1,5 +1,8 @@
 # WebShark
 
+[![Rust](https://github.com/ikegam/webshark/actions/workflows/rust.yml/badge.svg)](https://github.com/ikegam/webshark/actions/workflows/rust.yml)
+[![License: BSD-4-Clause](https://img.shields.io/badge/license-BSD--4--Clause-blue.svg)](LICENSE)
+
 🦈 A web-based network analysis tool for real-time packet visualization on Linux gateways.
 
 ## Features
@@ -24,7 +27,7 @@
   sudo dpkg-reconfigure wireshark-common       # if you answered "No"
   sudo usermod -aG wireshark $USER
   ```
-- To build: Rust (stable). For a portable binary add the musl target:
+- To build: Rust 1.85 or newer (edition 2024). For a portable binary add the musl target:
   `rustup target add x86_64-unknown-linux-musl`
 
 ## Build and Run
@@ -80,7 +83,19 @@ cargo fmt -- --check
 
 ## License
 
-BSD 4-Clause License
+WebShark is released under the [BSD 4-Clause License](LICENSE).
+
+### Third-party components
+
+These are not bundled in the repository; they are loaded or downloaded at run time.
+
+| Component | Used for | License |
+|---|---|---|
+| [DB-IP IP to City Lite](https://db-ip.com/db/download/ip-to-city-lite) | GeoIP map (downloaded by `make geoip`) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — "IP Geolocation by DB-IP" is shown on the map |
+| [world-atlas](https://github.com/topojson/world-atlas) / [Natural Earth](https://www.naturalearthdata.com/) | Map outlines | ISC / public domain |
+| [Chart.js](https://www.chartjs.org/) | Charts | MIT |
+| [D3](https://d3js.org/), [topojson-client](https://github.com/topojson/topojson-client) | Graph, map | ISC |
+| [Wireshark / tshark](https://www.wireshark.org/) | Packet capture and dissection (installed separately) | GPL-2.0 |
 
 ## Contributing
 

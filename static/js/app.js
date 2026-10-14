@@ -169,7 +169,7 @@ function parseCidr(cidr) {
     const v4 = parseV4(addr);
     if (v4 !== null) {
         const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
-        return { v: 4, net: (v4 & mask) >>> 0, mask };
+        return { v: 4, net: (v4 & mask) >>> 0, mask, bits };
     }
     const v6 = parseV6(addr);
     if (v6 !== null) {
@@ -191,6 +191,13 @@ function inNets(ip, nets) {
 }
 const classCache = new Map();
 const LINK_LOCAL = ['169.254.0.0/16', 'fe80::/10'].map(parseCidr);
+/** Network or broadcast address of one of our IPv4 LAN subnets (e.g. 192.168.0.255 on a /24). */
+function isSubnetEdge(ip) {
+    const v4 = parseV4(ip);
+    if (v4 === null) return false;
+    return S.lanNets.some((n) => n && n.v === 4 && n.bits <= 30 && ((v4 & n.mask) >>> 0) === n.net &&
+        (v4 === n.net || v4 === ((n.net | ~n.mask) >>> 0)));
+}
 /**
  * 'self' | 'mcast' | 'lan' (a device on our LAN) | 'priv' (private/local
  * range beyond the gateway, e.g. VPN or CGNAT) | 'wan' | 'none'
@@ -201,7 +208,7 @@ function classify(ip) {
     if (c) return c;
     if (!ip || ip === 'Unknown' || ip === '0.0.0.0' || ip === '::') c = 'none';
     else if (S.selfIps.has(ip)) c = 'self';
-    else if (inNets(ip, MULTICAST)) c = 'mcast';
+    else if (inNets(ip, MULTICAST) || isSubnetEdge(ip)) c = 'mcast';   // broadcast-like, not a device
     else if (S.lanNets.length ? inNets(ip, S.lanNets) || inNets(ip, LINK_LOCAL) : inNets(ip, BUILTIN_LOCAL)) c = 'lan';
     else if (inNets(ip, BUILTIN_LOCAL)) c = 'priv';
     else c = 'wan';

@@ -82,6 +82,7 @@ const S = {
     expanded: new Set(),     // flow ids open in the table
     sort: { col: 'rate', dir: -1 },
     range: 300,
+    graphMode: 'map',
     search: '',
     view: 'dash',
 };
@@ -274,6 +275,7 @@ function setContext(ctx) {
     S.lanNets = (ctx.lan_nets || []).map((n) => parseCidr(n.cidr)).filter(Boolean);
     S.hostname = ctx.hostname || '';
     mergeLanNames(ctx.lan_names);
+    geoSetContext(ctx.geo);
     classCache.clear();
     // Seed throughput history recorded by the server before we connected.
     for (const [sec, down, up, int, pkts] of ctx.history || []) {
@@ -972,7 +974,7 @@ function render() {
         renderApps();
         renderRemotes();
         renderSizes();
-        renderGraph(now);
+        if (S.graphMode === 'map') geoRender(now); else renderGraph(now);
     } else if (S.view === 'flows') {
         renderFlows(now);
     } else if (S.view === 'packets') {
@@ -983,6 +985,20 @@ function render() {
 }
 
 // ---------- UI wiring ----------
+function setGraphMode(mode) {
+    S.graphMode = mode;
+    for (const b of document.querySelectorAll('#graphModeSeg button')) b.classList.toggle('on', b.dataset.gmode === mode);
+    for (const el of document.querySelectorAll('.map-only')) el.hidden = mode !== 'map';
+    for (const el of document.querySelectorAll('.graph-only')) el.hidden = mode !== 'graph';
+    try { localStorage.setItem('webshark-graph-mode', mode); } catch { /* ignore */ }
+    if (mode === 'graph') resizeGraph(); else geoResetBase();
+    updateMapActivity();
+    render();
+}
+function updateMapActivity() {
+    geoSetActive(S.view === 'dash' && S.graphMode === 'map' && !S.paused);
+}
+
 function setView(view) {
     S.view = view;
     for (const tab of document.querySelectorAll('.tab')) {
@@ -996,6 +1012,7 @@ function setView(view) {
         v.hidden = !on;
     }
     if (view === 'alerts') renderAlerts();
+    updateMapActivity();
     try { history.replaceState(null, '', `#${view}`); } catch { /* ignore */ }
     render();
 }
@@ -1006,6 +1023,7 @@ function setPaused(p) {
     btn.setAttribute('aria-pressed', p);
     btn.innerHTML = p ? ICON_PLAY : ICON_PAUSE;
     btn.title = p ? '表示を再開 (Space)' : '表示を一時停止 (Space)';
+    updateMapActivity();
 }
 
 function clearData() {
@@ -1069,12 +1087,16 @@ function init() {
 
     makeCharts();
     setupGraph();
+    geoInit();
 
     for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => setView(tab.dataset.view));
-    for (const btn of document.querySelectorAll('.seg button')) {
+    for (const btn of document.querySelectorAll('#graphModeSeg button')) {
+        btn.addEventListener('click', () => setGraphMode(btn.dataset.gmode));
+    }
+    for (const btn of document.querySelectorAll('.seg button[data-range]')) {
         btn.addEventListener('click', () => {
             S.range = Number(btn.dataset.range);
-            for (const b of document.querySelectorAll('.seg button')) b.classList.toggle('on', b === btn);
+            for (const b of document.querySelectorAll('.seg button[data-range]')) b.classList.toggle('on', b === btn);
             render();
         });
     }
@@ -1117,6 +1139,10 @@ function init() {
         else if (e.key === ' ') { e.preventDefault(); setPaused(!S.paused); }
     });
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(document.documentElement.dataset.theme));
+
+    let mode = 'map';
+    try { if (localStorage.getItem('webshark-graph-mode') === 'graph') mode = 'graph'; } catch { /* ignore */ }
+    setGraphMode(mode);
 
     const initial = location.hash.slice(1);
     setView(['dash', 'flows', 'packets', 'alerts'].includes(initial) ? initial : 'dash');

@@ -78,14 +78,21 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster, stats: SharedStats) 
     let mut dropped: u64 = 0;
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
 
+    let local_ips = get_local_ips();
     let ctx = serde_json::json!({
         "type": "ctx",
         "protocols": PROTOCOLS,
-        "local_ips": get_local_ips(),
+        "local_ips": local_ips,
         "lan_nets": get_lan_nets(),
         "hostname": get_hostname(),
         "history": history,
-        "lan_names": lan_names
+        "lan_names": lan_names,
+        "geo": {
+            "enabled": crate::geo::enabled(),
+            "home": crate::geo::home(&local_ips),
+            "attribution": crate::geo::ATTRIBUTION,
+            "attribution_url": crate::geo::ATTRIBUTION_URL
+        }
     });
     if sender.send(Message::Text(ctx.to_string())).await.is_err() {
         return;

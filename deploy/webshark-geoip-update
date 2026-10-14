@@ -1,0 +1,25 @@
+#!/bin/bash
+# Download the current DB-IP "IP to City Lite" database (CC BY 4.0) for
+# WebShark's map view. The file is swapped in with an atomic rename, and the
+# running service picks it up by itself (no restart needed).
+set -euo pipefail
+
+dir=/var/lib/webshark
+dest="$dir/dbip-city-lite.mmdb"
+mkdir -p "$dir"
+tmp=$(mktemp "$dir/.dbip-city-lite.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+# The file for the new month may not be published yet; fall back to last month.
+for month in "$(date -u +%Y-%m)" "$(date -u -d "$(date -u +%Y-%m-15) -1 month" +%Y-%m)"; do
+    url="https://download.db-ip.com/free/dbip-city-lite-$month.mmdb.gz"
+    if curl -fsSL --retry 3 "$url" | gunzip > "$tmp" && [ -s "$tmp" ]; then
+        chmod 0644 "$tmp"
+        mv -f "$tmp" "$dest"
+        trap - EXIT
+        echo "Installed dbip-city-lite-$month ($(du -h "$dest" | cut -f1))"
+        exit 0
+    fi
+done
+echo "Failed to download the DB-IP database" >&2
+exit 1

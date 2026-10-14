@@ -1,4 +1,5 @@
 mod capture;
+mod geo;
 mod handlers;
 mod history;
 mod names;
@@ -29,6 +30,16 @@ async fn main() {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (resolve_tx, resolve_rx) = mpsc::unbounded_channel();
 
+    // GeoIP database (optional): load now, pick up replacements later.
+    geo::reload_if_changed();
+    if !geo::enabled() {
+        info!(
+            "GeoIP database not found at {}; the map view is disabled",
+            geo::db_path().display()
+        );
+    }
+    tokio::spawn(geo::reload_task());
+
     // Resolve hostnames of LAN devices as they appear.
     tokio::spawn(names::resolver_task(stats.clone(), resolve_rx));
 
@@ -46,6 +57,7 @@ async fn main() {
         .route("/", get(handlers::index_handler))
         .route("/api/stats", get(handlers::stats_handler))
         .route("/api/names", get(handlers::names_handler))
+        .route("/api/geo", axum::routing::post(handlers::geo_handler))
         .route(
             "/api/filter",
             get(handlers::filter_handler).post(handlers::set_filter_handler),

@@ -90,15 +90,29 @@
 
                 <article class="panel span-2">
                     <header class="panel-head">
-                        <h2>通信グラフ</h2>
-                        <div class="legend" aria-hidden="true">
+                        <h2>通信マップ</h2>
+                        <div class="legend map-only" aria-hidden="true">
+                            <span><i class="dot s-down"></i>下り（到着）</span>
+                            <span><i class="dot s-up"></i>上り（送信）</span>
+                            <span><i class="dot s-self"></i>このルーター</span>
+                        </div>
+                        <div class="legend graph-only" aria-hidden="true" hidden>
                             <span><i class="dot s-lan"></i>LAN機器</span>
                             <span><i class="dot s-wan"></i>インターネット</span>
                             <span><i class="dot s-self"></i>このルーター</span>
                         </div>
-                        <span class="panel-note">直近2分・上位40ペア／ドラッグ可</span>
+                        <span class="panel-note map-only" id="geoNote">直近2分</span>
+                        <span class="panel-note graph-only" hidden>直近2分・上位40ペア／ドラッグ可</span>
+                        <div class="seg" role="group" aria-label="表示" id="graphModeSeg">
+                            <button data-gmode="map" class="on">マップ</button>
+                            <button data-gmode="graph">グラフ</button>
+                        </div>
                     </header>
-                    <div class="graph-box" id="graphBox"><svg id="graph" role="img" aria-label="ホスト間の通信グラフ"></svg></div>
+                    <div class="graph-box map-only" id="mapBox">
+                        <svg id="geoMap" role="img" aria-label="通信相手の地理的な位置"></svg>
+                        <a class="map-attribution" id="geoAttribution" href="https://db-ip.com" target="_blank" rel="noopener" hidden>IP Geolocation by DB-IP</a>
+                    </div>
+                    <div class="graph-box graph-only" id="graphBox" hidden><svg id="graph" role="img" aria-label="ホスト間の通信グラフ"></svg></div>
                 </article>
 
                 <article class="panel">
@@ -186,6 +200,8 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+    <script src="/static/js/geo.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/ws.js"></script>
 </body>

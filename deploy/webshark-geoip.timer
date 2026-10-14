@@ -1,0 +1,10 @@
+[Unit]
+Description=Monthly update of the WebShark GeoIP database
+
+[Timer]
+OnCalendar=*-*-03 04:00
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

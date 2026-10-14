@@ -28,6 +28,10 @@ pub async fn static_handler(Path(path): Path<String>) -> Response {
             include_str!("../static/js/app.js"),
             "text/javascript; charset=utf-8",
         ),
+        "js/geo.js" => (
+            include_str!("../static/js/geo.js"),
+            "text/javascript; charset=utf-8",
+        ),
         "js/ws.js" => (
             include_str!("../static/js/ws.js"),
             "text/javascript; charset=utf-8",
@@ -42,6 +46,27 @@ pub async fn static_handler(Path(path): Path<String>) -> Response {
         body,
     )
         .into_response()
+}
+
+#[derive(serde::Deserialize)]
+pub struct GeoRequest {
+    ips: Vec<String>,
+}
+
+/// Look up locations for up to 1000 addresses. Unknown/private addresses map to null.
+pub async fn geo_handler(
+    Json(req): Json<GeoRequest>,
+) -> Json<std::collections::HashMap<String, Option<crate::geo::GeoInfo>>> {
+    Json(
+        req.ips
+            .into_iter()
+            .take(1000)
+            .map(|ip| {
+                let info = crate::geo::lookup(&ip);
+                (ip, info)
+            })
+            .collect(),
+    )
 }
 
 pub async fn names_handler(

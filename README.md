@@ -4,141 +4,78 @@
 
 ## Features
 
-- 🚀 **Simple Setup**: Single binary written in Rust
-- 📊 **Real-time Visualization**: Dynamic updates via WebSocket
-- 🔍 **tshark Integration**: Uses Wireshark's tshark command
-- 🎨 **Beautiful UI**: Modern web interface
-- 📈 **Statistics**: Protocol-wise and source/destination statistics
-- ⚡ **High Performance**: Compressed WebSocket communication
-- 🔧 **Flexible Filtering**: tshark filter support and localhost toggle
+- 🚀 **Single static binary**: Rust, web assets embedded, no runtime files needed
+- 📊 **Live dashboard**: upload / download / LAN-internal throughput (with 15 minutes of
+  server-side history), per-device traffic, apps & services, top remote hosts, packet sizes
+- 🕸️ **Communication graph**: force-directed graph of who talks to whom (last 2 minutes)
+- 🔍 **Flows & packet log**: sortable 5-tuple flow table with per-flow packet detail, live log, search
+- 🏷️ **Names, not just IPs**: hostnames from observed DNS/mDNS answers and TLS SNI / HTTP Host,
+  plus active mDNS reverse lookups for LAN devices; devices grouped by MAC (IPv4 + IPv6)
+- ⚠️ **Alerts**: port scan, LAN sweep, new device, heavy upload (heuristics)
+- 🔧 **Capture filters**: BPF filters validated by dumpcap before they are applied
+- 🌗 Light / dark theme, works on mobile
 
 ## Requirements
 
-### System Requirements
-- Linux OS (Ubuntu, CentOS, Debian, etc.)
-- Rust 1.70+
-- Wireshark (tshark command)
-
-### Installation
-
-1. **Install Wireshark**:
-   ```bash
-   # Ubuntu/Debian
-   sudo apt update
-   sudo apt install wireshark-common
-   
-   # CentOS/RHEL
-   sudo yum install wireshark-cli
-   
-   # or
-   sudo dnf install wireshark-cli
-   ```
-
-2. **Set Permissions** (Important):
-   ```bash
-   # Add to wireshark group
-   sudo usermod -a -G wireshark $USER
-   
-   # Or allow tshark to run without sudo
-   sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/tshark
-   ```
-
-3. **Install Rust** (if needed):
-   ```bash
-   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-   source ~/.cargo/env
-   ```
+- Linux with `tshark` / `dumpcap` (Wireshark CLI)
+- `dumpcap` must be able to capture without root:
+  ```bash
+  sudo apt install tshark                      # answer "Yes" to non-superuser capture
+  sudo dpkg-reconfigure wireshark-common       # if you answered "No"
+  sudo usermod -aG wireshark $USER
+  ```
+- To build: Rust (stable). For a portable binary add the musl target:
+  `rustup target add x86_64-unknown-linux-musl`
 
 ## Build and Run
 
-1. **Build the project**:
-   ```bash
-   cargo build --release
-   ```
-
-2. **Run**:
-   ```bash
-   # Run with administrator privileges (for network interface access)
-   sudo ./target/release/webshark
-   ```
-
-3. **Access via browser**:
-   ```
-   http://localhost:3000
-   ```
-
-## Usage
-
-1. Access `http://localhost:3000` in your browser
-2. Click "Start" button to begin packet capture
-3. Real-time packet information will be displayed
-4. Statistics are automatically updated
-5. IPv6 and ARP addresses are also detected. If no address information is present, `Unknown` will be displayed.
-
-## Configuration Options
-
-### Interface Specification
-By default, all interfaces (`any`) are monitored. To specify a particular interface,
-modify line 129 of `src/main.rs`:
-
-```rust
-.args(&[
-    "-i", "eth0",  // Specific interface
-    // ...
-])
-```
-
-### Port Change
-To change the default port 3000, modify line 97:
-
-```rust
-let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-```
-
-## Troubleshooting
-
-### 1. tshark not found
-Check with:
 ```bash
-which tshark
-```
-Ensure the path is correct.
+make build            # static binary: target/x86_64-unknown-linux-musl/release/webshark
+make test
 
-### 2. Permission errors
-Run with:
-```bash
-sudo ./target/release/webshark
-```
-or perform the permission setup mentioned above.
-
-### 3. Network interface not found
-Check available interfaces with:
-```bash
-ip link show
+WEBSHARK_BIND=127.0.0.1:3000 WEBSHARK_IFACE=any ./target/x86_64-unknown-linux-musl/release/webshark
 ```
 
-### 4. WebSocket connection errors
-Ensure port 3000 is open in the firewall:
+Open `http://<WEBSHARK_BIND>/` in a browser.
+
+## Configuration
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `WEBSHARK_BIND` | `127.0.0.1:3000` | Address the web UI listens on. On a gateway use the **LAN** address, never `0.0.0.0`. |
+| `WEBSHARK_IFACE` | `any` | Capture interface. On a router, the LAN interface shows per-device traffic before NAT. |
+| `RUST_LOG` | – | Log level (`info`, `debug`, …). |
+
+The UI's own port is always excluded from capture.
+
+## Deploy to a gateway (systemd)
+
 ```bash
-sudo ufw allow 3000
+make deploy                                   # defaults: HOST=192.168.0.1 IFACE=enp3s0 LAN_IFACE=enp3s0
+make deploy HOST=10.0.0.1 IFACE=eth1 LAN_IFACE=eth1
+make status | make logs | make undeploy
 ```
+
+`make deploy` runs the tests, builds the static binary, copies it over SSH and installs
+`webshark.service` running as an unprivileged `webshark` user (member of `wireshark`),
+writes `/etc/default/webshark`, and opens the port with ufw **on the LAN interface only**.
+
+Resource use is bounded for 24/7 operation: packets are piped from dumpcap to tshark (no
+capture files on disk), tshark's dissection state is reset periodically, all in-memory tables
+are capped, and the service has `MemoryMax=512M`.
 
 ## Development
 
-### Log output
 ```bash
 RUST_LOG=debug cargo run
-```
-
-### Hot reload
-```bash
-cargo watch -x run
+cargo fmt -- --check
 ```
 
 ## Security Notes
 
-- This tool requires administrator privileges to run
-- Set appropriate access restrictions in production environments
+- No root needed: capture privileges come from `dumpcap`'s file capabilities
+- There is no authentication: bind to a trusted interface and restrict access with the firewall
+- Cross-origin WebSocket connections are rejected
 - Consider privacy when monitoring network traffic
 
 ## License

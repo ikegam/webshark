@@ -1,70 +1,60 @@
-function connectWebSocket() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+'use strict';
 
-    ws = new WebSocket(wsUrl);
+// WebSocket transport: connects, reconnects with backoff, decompresses gzip
+// batches and hands packets to app.js (ingestBatch / setContext / noteDropped).
 
-    ws.onopen = function() {
-        console.log('WebSocket connection established');
-        connectionStatusEl.textContent = 'Connected';
-        statusText.textContent = 'Capturing packets...';
-        statusDot.style.background = '#48bb78';
-        isRunning = true;
-    };
+(function () {
+    let ws = null;
+    let retry = 0;
+    // Batches are decompressed asynchronously; chain them so they are applied
+    // in arrival order.
+    let queue = Promise.resolve();
 
-    ws.onmessage = async function(event) {
-        let packets = [];
+    async function gunzipJson(buf) {
+        const stream = new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return JSON.parse(await new Response(stream).text());
+    }
 
-        if (typeof event.data === 'string') {
-            const msg = JSON.parse(event.data);
-            if (msg.type === 'ctx') {
-                PROTOCOLS = msg.protocols;
-                LOCAL_IPS = msg.local_ips || [];
+    function connect() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        setConnState('connecting', retry ? `再接続中…（${retry}回目）` : '接続中…');
+        ws = new WebSocket(`${proto}//${location.host}/ws`);
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+            retry = 0;
+            setConnState('open', 'キャプチャ中');
+        };
+
+        ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                let msg;
+                try { msg = JSON.parse(event.data); } catch { return; }
+                if (msg.type === 'ctx') setContext(msg);
+                else if (msg.type === 'dropped') noteDropped(msg.count || 0);
                 return;
             }
-            packets = [msg];
-        } else if (event.data instanceof Blob) {
-            // Decompress data
-            try {
-                const arrayBuffer = await event.data.arrayBuffer();
-                const decompressed = pako.inflate(new Uint8Array(arrayBuffer), { to: 'string' });
-                packets = JSON.parse(decompressed);
-            } catch (e) {
-                console.error('Failed to decompress data:', e);
-                return;
-            }
-        }
+            const buf = event.data;
+            queue = queue
+                .then(() => gunzipJson(buf))
+                .then((packets) => ingestBatch(packets))
+                .catch((e) => console.error('Failed to decode batch:', e));
+        };
 
-        // Add batch packets to queue
-        packets.forEach(packet => {
-            if (packet.proto !== undefined && PROTOCOLS.length) {
-                packet.protocol = PROTOCOLS[packet.proto] || 'UNKNOWN';
-            }
-            if (packet.sub_proto === null) packet.sub_proto = undefined;
-            packetQueue.push(packet);
-            packetCount++;
-        });
+        ws.onclose = () => {
+            ws = null;
+            const delay = Math.min(30000, 1000 * 2 ** Math.min(retry, 5));
+            retry++;
+            setConnState('closed', `切断（${Math.round(delay / 1000)}秒後に再接続）`);
+            setTimeout(connect, delay);
+        };
 
-        totalPacketsEl.textContent = packetCount.toLocaleString();
+        ws.onerror = () => { /* onclose follows and handles reconnection */ };
+    }
 
-        // Start queue processing
-        if (!isProcessingQueue) {
-            requestAnimationFrame(processPacketQueue);
-        }
-    };
-
-    ws.onclose = function() {
-        console.log('WebSocket connection closed');
-        connectionStatusEl.textContent = 'Disconnected';
-        statusText.textContent = 'Waiting...';
-        statusDot.style.background = '#e53e3e';
-        isRunning = false;
-    };
-
-    ws.onerror = function(error) {
-        console.error('WebSocket error:', error);
-        connectionStatusEl.textContent = 'Error';
-        statusDot.style.background = '#ed8936';
-    };
-}
-
+    if (typeof DecompressionStream === 'undefined') {
+        setConnState('closed', 'このブラウザは非対応です（DecompressionStream なし）');
+        return;
+    }
+    connect();
+})();

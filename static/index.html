@@ -1,270 +1,191 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebShark - Network Packet Visualizer</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <title>WebShark</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M5 21h4l3-9 4 13 3-8 2 4h6' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/static/css/styles.css">
-    </head>
+</head>
 <body>
-    <div class="header">
-        <h1>🦈 WebShark</h1>
-        <p>Real-time Network Traffic Monitoring</p>
-    </div>
-
-    <div class="tabs" role="tablist">
-        <button class="tab-btn active" id="topTab" role="tab" aria-selected="true" aria-controls="topView" tabindex="0">
-            <span class="tab-icon">📊</span>
-            <span>トップビュー</span>
-            <span class="tab-badge zero" id="topTabBadge">0</span>
-        </button>
-        <button class="tab-btn" id="vizTab" role="tab" aria-selected="false" aria-controls="vizView" tabindex="-1">
-            <span class="tab-icon">📈</span>
-            <span>可視化ビュー</span>
-            <span class="tab-badge zero" id="vizTabBadge">0</span>
-        </button>
-        
-        <div class="tab-shortcuts">
-            <span class="shortcut-hint" title="Switch tabs">Alt+1/2</span>
-            <span class="shortcut-hint" title="Search">Ctrl+F</span>
+    <header class="topbar">
+        <div class="brand">
+            <svg class="brand-mark" viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M5 21h4l3-9 4 13 3-8 2 4h6" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="brand-name">WebShark</span>
+            <span class="brand-host" id="hostLabel"></span>
         </div>
-    </div>
-
-        <div class="tab-context-menu" id="tabContextMenu">
-        <button class="context-menu-item" onclick="refreshCurrentTab()">
-            <span>🔄</span> Refresh Tab
-        </button>
-        <button class="context-menu-item" onclick="clearCurrentTab()">
-            <span>🗑️</span> Clear Data
-        </button>
-        <button class="context-menu-item" onclick="exportTabData()">
-            <span>💾</span> Export Data
-        </button>
-        <button class="context-menu-item danger" onclick="resetAllTabs()">
-            <span>⚠️</span> Reset All
-        </button>
-    </div>
-
-    <div id="topView" class="view tab-content active" role="tabpanel" aria-labelledby="topTab">
-    <div class="container">
-                <div class="search-container">
-            <span class="search-icon">🔍</span>
-            <input type="text" class="search-input" id="topViewSearch" placeholder="Search flows, IPs, protocols...">
+        <nav class="tabs" role="tablist" aria-label="表示切替">
+            <button class="tab active" role="tab" id="tab-dash" aria-controls="view-dash" aria-selected="true" data-view="dash">ダッシュボード</button>
+            <button class="tab" role="tab" id="tab-flows" aria-controls="view-flows" aria-selected="false" data-view="flows">フロー <span class="count" id="flowCount">0</span></button>
+            <button class="tab" role="tab" id="tab-packets" aria-controls="view-packets" aria-selected="false" data-view="packets">パケット</button>
+            <button class="tab" role="tab" id="tab-alerts" aria-controls="view-alerts" aria-selected="false" data-view="alerts">アラート <span class="count" id="alertCount">0</span></button>
+        </nav>
+        <div class="topbar-right">
+            <span class="conn" id="conn" data-state="connecting"><span class="conn-dot"></span><span id="connText">接続中…</span></span>
+            <button class="icon-btn" id="pauseBtn" title="表示を一時停止 (Space)" aria-label="一時停止" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg></button>
+            <button class="icon-btn" id="clearBtn" title="表示データをクリア" aria-label="クリア"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v3h3"/></svg></button>
+            <button class="icon-btn" id="themeBtn" title="ライト/ダーク切替" aria-label="テーマ切替"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/></svg></button>
         </div>
-        <div class="controls">
-            <button class="btn" id="startBtn">Start</button>
-            <button class="btn danger" id="stopBtn">Stop</button>
-            <button class="btn" id="clearBtn">Clear Log</button>
-            
-            <div class="filter-controls">
-                <div class="checkbox-container">
-                    <input type="checkbox" id="hideLocalhost" checked>
-                    <label for="hideLocalhost">Hide localhost traffic</label>
-                </div>
-            </div>
-            
-            <div class="sort-controls">
-                <label for="sortSessions">Sort by:</label>
-                <select id="sortSessions">
-                    <option value="recent">Most Recent</option>
-                    <option value="traffic">Traffic Volume</option>
-                    <option value="alphabetical">Alphabetical</option>
-                </select>
-            </div>
+    </header>
+
+    <section class="toolbar">
+        <div class="search">
+            <input type="search" id="search" placeholder="IP・ポート・アプリで絞り込み  (/ でフォーカス)" autocomplete="off" spellcheck="false">
         </div>
+        <form class="capfilter" id="filterForm" autocomplete="off">
+            <label for="filterInput">キャプチャフィルタ (BPF)</label>
+            <input type="text" id="filterInput" placeholder="例: not port 443 / host 192.168.0.109 / udp port 53" spellcheck="false">
+            <button type="submit" class="btn">適用</button>
+            <button type="button" class="btn ghost" id="filterReset">解除</button>
+            <span class="filter-msg" id="filterMsg" role="status"></span>
+        </form>
+    </section>
 
-        <div class="status">
-            <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Waiting...</span>
-            <span id="memoryStatus" class="memory-info">Memory: 0MB</span>
-        </div>
-
-        <div class="advanced-controls">
-            <h3>🔧 Advanced Settings</h3>
-            <div class="control-row">
-                <div class="control-group">
-                    <label for="memoryLimit">Memory Limit:</label>
-                    <input type="number" id="memoryLimit" value="50" min="10" max="500" step="10">
-                    <span>MB</span>
-                </div>
-                
-                <div class="control-group">
-                    <label for="maxSessions">Max Sessions:</label>
-                    <input type="number" id="maxSessions" value="20" min="5" max="100" step="5">
-                </div>
-                
-                <div class="control-group">
-                    <label for="maxPacketsPerSession">Max Packets per Session:</label>
-                    <input type="number" id="maxPacketsPerSession" value="50" min="10" max="200" step="10">
-                </div>
-
-                <div class="control-group">
-                    <input type="checkbox" id="groupLanWan" checked>
-                    <label for="groupLanWan">Group by LAN/WAN</label>
-                </div>
-            </div>
-            
-            <div class="control-row">
-                <div class="control-group">
-                    <label for="tsharkFilter">tshark Filter:</label>
-                    <input type="text" id="tsharkFilter" class="filter-input" placeholder="e.g. tcp port 80 or udp port 53">
-                    <button class="btn" id="applyFilterBtn">Apply</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="dashboard">
-            <div class="card">
-                <h3>📊 Statistics</h3>
-                <div class="stat-item">
-                    <span>Total Packets:</span>
-                    <span id="totalPackets">0</span>
-                </div>
-                <div class="stat-item">
-                    <span>Connection:</span>
-                    <span id="connectionStatus">Disconnected</span>
-                </div>
+    <main>
+        <!-- Dashboard -->
+        <section class="view active" id="view-dash" role="tabpanel" aria-labelledby="tab-dash">
+            <div class="kpis">
+                <div class="kpi"><div class="kpi-label"><span class="swatch s-down"></span>下り</div><div class="kpi-value" id="kpiDown">0 bps</div><div class="kpi-sub" id="kpiDownPeak">ピーク —</div></div>
+                <div class="kpi"><div class="kpi-label"><span class="swatch s-up"></span>上り</div><div class="kpi-value" id="kpiUp">0 bps</div><div class="kpi-sub" id="kpiUpPeak">ピーク —</div></div>
+                <div class="kpi"><div class="kpi-label">パケット/秒</div><div class="kpi-value" id="kpiPps">0</div><div class="kpi-sub" id="kpiTotal">累計 0</div></div>
+                <div class="kpi"><div class="kpi-label">アクティブフロー</div><div class="kpi-value" id="kpiFlows">0</div><div class="kpi-sub">直近60秒</div></div>
+                <div class="kpi"><div class="kpi-label">LAN機器</div><div class="kpi-value" id="kpiDevices">0</div><div class="kpi-sub" id="kpiDevicesSub">直近5分</div></div>
+                <div class="kpi"><div class="kpi-label">アラート</div><div class="kpi-value" id="kpiAlerts">0</div><div class="kpi-sub" id="kpiDropped">取りこぼし 0</div></div>
             </div>
 
-            <div class="card">
-                <h3>🔗 By Protocol</h3>
-                <div id="protocolStats">
-                    <div class="stat-item">
-                        <span>No data</span>
-                        <span>-</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>📍 Top Sources</h3>
-                <div id="sourceStats">
-                    <div class="stat-item">
-                        <span>No data</span>
-                        <span>-</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>🎯 Top Destinations</h3>
-                <div id="destStats">
-                    <div class="stat-item">
-                        <span>No data</span>
-                        <span>-</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="card packet-log">
-            <h3>📡 Smart Communication Flows</h3>
-            <div id="flowList"></div>
-        </div>
-    </div>
-    </div>
-
-        <div id="vizView" class="view tab-content" role="tabpanel" aria-labelledby="vizTab">
-        <div class="container">
-                        <div class="search-container">
-                <span class="search-icon">📊</span>
-                <input type="text" class="search-input" id="vizViewSearch" placeholder="Filter visualizations, hosts...">
-            </div>
-            
-            <div class="viz-container">
-                                <div class="viz-card">
-                    <h3>🔗 ネットワークフロー図</h3>
-                    <div class="viz-description">ホスト間の通信フローを可視化</div>
-                    <div class="viz-content">
-                        <svg id="chordDiagram" width="300" height="280"></svg>
-                    </div>
-                </div>
-                
-                <div class="viz-card">
-                    <h3>📈 時系列トラフィック</h3>
-                    <div class="viz-description">時間経過に伴うトラフィック量の変化</div>
-                    <div class="viz-content">
-                        <canvas id="timeChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                                <div class="viz-card">
-                    <h3>📊 累積トラフィック</h3>
-                    <div class="viz-description">総トラフィック量の累積推移</div>
-                    <div class="viz-content">
-                        <canvas id="totalTrafficChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                <div class="viz-card">
-                    <h3>🎯 プロトコル分布</h3>
-                    <div class="viz-description">ネットワークプロトコルの使用状況</div>
-                    <div class="viz-content">
-                        <canvas id="protocolChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                                <div class="viz-card">
-                    <h3>📤 トップ送信元ホスト</h3>
-                    <div class="viz-description">最も多くデータを送信しているホスト</div>
-                    <div class="viz-content">
-                        <canvas id="topSourcesChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                <div class="viz-card">
-                    <h3>📥 トップ宛先ホスト</h3>
-                    <div class="viz-description">最も多くデータを受信しているホスト</div>
-                    <div class="viz-content">
-                        <canvas id="topDestinationsChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                                <div class="viz-card">
-                    <h3>📦 パケットサイズ分布</h3>
-                    <div class="viz-description">パケットサイズの統計分布</div>
-                    <div class="viz-content">
-                        <canvas id="packetSizeChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                <div class="viz-card">
-                    <h3>🔄 接続状態統計</h3>
-                    <div class="viz-description">TCP接続状態とUDPフローの統計</div>
-                    <div class="viz-content">
-                        <canvas id="connectionStatesChart" height="280"></canvas>
-                    </div>
-                </div>
-                
-                                <div class="viz-card">
-                    <h3>🌍 地理的分布マップ</h3>
-                    <div class="viz-description">IPアドレスの地理的分布（将来実装予定）</div>
-                    <div class="viz-content">
-                        <div class="viz-placeholder">
-                            地理的分布マップ<br>
-                            <small>将来の機能拡張で実装予定</small>
+            <div class="grid">
+                <article class="panel span-2">
+                    <header class="panel-head">
+                        <h2>スループット</h2>
+                        <div class="legend" aria-hidden="true">
+                            <span><i class="swatch s-down"></i>下り (WAN→LAN)</span>
+                            <span><i class="swatch s-up"></i>上り (LAN→WAN)</span>
+                            <span><i class="swatch s-int"></i>LAN内</span>
                         </div>
-                    </div>
-                </div>
-                
-                <div class="viz-card">
-                    <h3>⚠️ セキュリティアラート</h3>
-                    <div class="viz-description">異常検知とセキュリティアラート（将来実装予定）</div>
-                    <div class="viz-content">
-                        <div class="viz-placeholder">
-                            セキュリティアラート<br>
-                            <small>将来の機能拡張で実装予定</small>
+                        <div class="seg" role="group" aria-label="期間">
+                            <button data-range="60">1分</button>
+                            <button data-range="300" class="on">5分</button>
+                            <button data-range="900">15分</button>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+                    </header>
+                    <div class="chart-box tall"><canvas id="throughputChart" aria-label="スループットの時系列"></canvas></div>
+                </article>
 
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+                <article class="panel">
+                    <header class="panel-head">
+                        <h2>LAN機器別 通信量</h2>
+                        <div class="legend" aria-hidden="true">
+                            <span><i class="swatch s-down"></i>下り</span>
+                            <span><i class="swatch s-up"></i>上り</span>
+                            <span><i class="swatch s-int"></i>LAN内</span>
+                        </div>
+                    </header>
+                    <div class="chart-box"><canvas id="devicesChart" aria-label="LAN機器別の通信量"></canvas></div>
+                </article>
+
+                <article class="panel">
+                    <header class="panel-head"><h2>アプリ / サービス別</h2><span class="panel-note">バイト数・累計</span></header>
+                    <div class="chart-box"><canvas id="appsChart" aria-label="アプリ別の通信量"></canvas></div>
+                </article>
+
+                <article class="panel span-2">
+                    <header class="panel-head">
+                        <h2>通信グラフ</h2>
+                        <div class="legend" aria-hidden="true">
+                            <span><i class="dot s-lan"></i>LAN機器</span>
+                            <span><i class="dot s-wan"></i>インターネット</span>
+                            <span><i class="dot s-self"></i>このルーター</span>
+                        </div>
+                        <span class="panel-note">直近2分・上位40ペア／ドラッグ可</span>
+                    </header>
+                    <div class="graph-box" id="graphBox"><svg id="graph" role="img" aria-label="ホスト間の通信グラフ"></svg></div>
+                </article>
+
+                <article class="panel">
+                    <header class="panel-head"><h2>リモート宛先 上位</h2><span class="panel-note">バイト数・累計</span></header>
+                    <div class="chart-box"><canvas id="remotesChart" aria-label="リモート宛先の通信量"></canvas></div>
+                </article>
+
+                <article class="panel">
+                    <header class="panel-head"><h2>パケットサイズ分布</h2><span class="panel-note">パケット数・累計</span></header>
+                    <div class="chart-box"><canvas id="sizeChart" aria-label="パケットサイズのヒストグラム"></canvas></div>
+                </article>
+            </div>
+        </section>
+
+        <!-- Flows -->
+        <section class="view" id="view-flows" role="tabpanel" aria-labelledby="tab-flows" hidden>
+            <article class="panel">
+                <header class="panel-head">
+                    <h2>フロー</h2>
+                    <label class="check"><input type="checkbox" id="activeOnly" checked> 直近60秒のみ</label>
+                    <span class="panel-note" id="flowsNote"></span>
+                </header>
+                <div class="table-wrap">
+                    <table class="data" id="flowsTable">
+                        <thead>
+                            <tr>
+                                <th data-sort="app">アプリ</th>
+                                <th data-sort="local">ローカル側</th>
+                                <th></th>
+                                <th data-sort="remote">相手側</th>
+                                <th data-sort="down" class="num">下り</th>
+                                <th data-sort="up" class="num">上り</th>
+                                <th data-sort="rate" class="num sorted desc">現在レート</th>
+                                <th data-sort="pkts" class="num">パケット</th>
+                                <th data-sort="last" class="num">最終</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+
+        <!-- Packets -->
+        <section class="view" id="view-packets" role="tabpanel" aria-labelledby="tab-packets" hidden>
+            <article class="panel">
+                <header class="panel-head">
+                    <h2>パケットログ</h2>
+                    <span class="panel-note">最新500件を保持・一時停止中は更新しません</span>
+                </header>
+                <div class="table-wrap">
+                    <table class="data mono" id="packetsTable">
+                        <thead>
+                            <tr><th>時刻</th><th>送信元</th><th>宛先</th><th>アプリ</th><th class="num">長さ</th><th>情報</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </article>
+        </section>
+
+        <!-- Alerts -->
+        <section class="view" id="view-alerts" role="tabpanel" aria-labelledby="tab-alerts" hidden>
+            <article class="panel">
+                <header class="panel-head">
+                    <h2>アラート</h2>
+                    <span class="panel-note">ヒューリスティック検知です。誤検知もあり得ます</span>
+                    <button class="btn ghost small" id="alertsClear">すべて既読にする</button>
+                </header>
+                <ul class="alerts" id="alertsList"></ul>
+                <details class="rules">
+                    <summary>検知ルール</summary>
+                    <ul>
+                        <li><b>ポートスキャン</b>: 1つの送信元が同じ相手の異なるTCPポート20個以上へ10秒以内にSYN</li>
+                        <li><b>LAN内スイープ</b>: 1つの送信元がLAN内の異なるホスト15台以上の同一ポートへ10秒以内にSYN</li>
+                        <li><b>新しいデバイス</b>: 起動後60秒以降に初めて見えたLAN内アドレス</li>
+                        <li><b>大量アップロード</b>: LAN機器1台が10秒間に50MB以上を外部へ送信</li>
+                    </ul>
+                </details>
+            </article>
+        </section>
+    </main>
+
+    <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
     <script src="/static/js/app.js"></script>
     <script src="/static/js/ws.js"></script>
 </body>

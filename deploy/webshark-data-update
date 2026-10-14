@@ -1,5 +1,5 @@
 #!/bin/bash
-# Download the reference data WebShark uses:
+# Download the reference data webshark uses:
 #   - DB-IP "IP to City Lite" (CC BY 4.0) for the map view
 #   - IEEE OUI registry (MAC address -> manufacturer) for the LAN view
 # Files are swapped in with an atomic rename; the running service picks them

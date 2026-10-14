@@ -1,4 +1,4 @@
-# Build and deploy WebShark to a Linux gateway over SSH.
+# Build and deploy webshark to a Linux gateway over SSH.
 #
 #   make deploy                      # build, copy, install, (re)start, open firewall
 #   make deploy HOST=10.0.0.1 IFACE=eth1 BIND=10.0.0.1:3000 LAN_IFACE=eth1
@@ -46,7 +46,7 @@ deploy: check
 	    $(MAKE) --no-print-directory remote-install STAGE=$$stage; } || \
 	  { $(SSH) $(HOST) "rm -rf $$stage"; echo "deploy failed; removed $$stage" >&2; exit 1; }
 	$(MAKE) --no-print-directory firewall
-	@echo "==> WebShark: http://$(BIND)/"
+	@echo "==> webshark: http://$(BIND)/"
 
 remote-install:
 	@test -n "$(STAGE)" || { echo "STAGE is not set (use make deploy)" >&2; exit 1; }

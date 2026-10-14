@@ -1,4 +1,4 @@
-# WebShark
+# webshark
 
 [![Rust](https://github.com/ikegam/webshark/actions/workflows/rust.yml/badge.svg)](https://github.com/ikegam/webshark/actions/workflows/rust.yml)
 [![License: BSD-4-Clause](https://img.shields.io/badge/license-BSD--4--Clause-blue.svg)](LICENSE)
@@ -85,7 +85,7 @@ cargo fmt -- --check
 
 ## License
 
-WebShark is released under the [BSD 4-Clause License](LICENSE).
+webshark is released under the [BSD 4-Clause License](LICENSE).
 
 ### Third-party components
 

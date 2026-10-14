@@ -1,7 +1,7 @@
 'use strict';
 
 // =====================================================================
-// WebShark front-end: aggregation + rendering.
+// webshark front-end: aggregation + rendering.
 // ws.js feeds data in through ingestBatch(), setContext(), noteDropped()
 // and setConnState().
 // =====================================================================
@@ -300,7 +300,7 @@ function setContext(ctx) {
         if (S.skew === null) S.skew = Date.now() / 1000 - (last + 1);
     }
     $('hostLabel').textContent = S.hostname ? `@ ${S.hostname}` : '';
-    document.title = S.hostname ? `WebShark · ${S.hostname}` : 'WebShark';
+    document.title = S.hostname ? `webshark · ${S.hostname}` : 'webshark';
 }
 
 function noteDropped(n) { S.dropped += n; }

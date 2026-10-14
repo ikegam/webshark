@@ -1,5 +1,5 @@
 [Unit]
-Description=WebShark real-time packet visualizer
+Description=webshark real-time packet visualizer
 Documentation=https://github.com/ikegam/webshark
 After=network-online.target
 Wants=network-online.target

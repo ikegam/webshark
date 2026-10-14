@@ -1,5 +1,5 @@
 [Unit]
-Description=Update WebShark reference data (GeoIP, OUI)
+Description=Update webshark reference data (GeoIP, OUI)
 After=network-online.target
 Wants=network-online.target
 

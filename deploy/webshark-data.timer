@@ -1,5 +1,5 @@
 [Unit]
-Description=Monthly update of WebShark reference data
+Description=Monthly update of webshark reference data
 
 [Timer]
 OnCalendar=*-*-03 04:00

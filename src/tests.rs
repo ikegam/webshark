@@ -15,15 +15,16 @@ mod tests {
     /// time|ip.src|ip.dst|ipv6.src|ipv6.dst|arp.src|arp.dst|protocols|len|
     /// tcp.srcport|tcp.dstport|udp.srcport|udp.dstport|tcp.flags|
     /// dns.qry.name|dns.a|dns.aaaa|tls.sni|http.host|eth.src|eth.dst|info
-    const INFO: usize = 21;
+    const INFO: usize = 32;
 
     fn line(fields: &[(usize, &str)]) -> String {
-        let mut cols = vec![""; 22];
-        cols[0] = "1.0";
+        let mut cols = vec![String::new(); 33];
+        cols[0] = "1.0".into();
         for &(i, v) in fields {
-            cols[i] = v;
+            // ';' in fixtures stands for tshark's occurrence aggregator.
+            cols[i] = v.replace(';', "\x1e");
         }
-        cols.join("|")
+        cols.join("\x1f")
     }
 
     #[test]
@@ -123,8 +124,12 @@ mod tests {
             (2, "192.168.0.108;8.8.8.8"),
             (7, "eth:ethertype:ip:icmp:ip:udp:dns"),
             (8, "98"),
-            (11, ";53000"),
-            (12, ";53"),
+            // With occurrence=a only existing occurrences are listed, so the
+            // quoted packet's ports appear without a leading separator.
+            (11, "53000"),
+            (12, "53"),
+            (14, "x.example"),
+            (15, "1.2.3.4"),
             (INFO, "Destination unreachable"),
         ]);
         let p = parse_tshark_line(&l).unwrap();
@@ -134,7 +139,9 @@ mod tests {
         );
         assert_eq!(p.protocol, "ICMP");
         assert_eq!(p.app, "icmp");
+        // Ports/DNS of the quoted packet must not be attributed to the ICMP error.
         assert_eq!((p.src_port, p.dst_port), (None, None));
+        assert!(p.dns_addrs.is_empty() && p.dns_name.is_none());
     }
 
     #[test]
@@ -179,6 +186,100 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_cdp_lldp_mdns_dhcp() {
+        let cdp = line(&[
+            (7, "eth:llc:cdp"),
+            (8, "400"),
+            (19, "B8:11:4B:53:0C:A6"),
+            (20, "01:00:0c:cc:cc:cc"),
+            (21, "APB811-4B53-0CA6"),
+            (22, "GigabitEthernet0"),
+            (23, "cisco AIR-AP2802I-Q-K9;PID:AIR-AP2802I-Q-K9"),
+        ]);
+        let p = parse_tshark_line(&cdp).unwrap();
+        assert_eq!(p.src_mac.as_deref(), Some("b8:11:4b:53:0c:a6"));
+        let l2 = p.l2.unwrap();
+        assert_eq!(
+            (l2.proto.as_str(), l2.name.as_deref(), l2.port.as_deref()),
+            ("CDP", Some("APB811-4B53-0CA6"), Some("GigabitEthernet0"))
+        );
+        assert_eq!(l2.platform.as_deref(), Some("cisco AIR-AP2802I-Q-K9"));
+
+        let lldp = line(&[
+            (7, "eth:ethertype:lldp"),
+            (8, "300"),
+            (19, "00:2c:c8:99:ad:7c"),
+            (25, "AP002C-C899-AD7C"),
+            (26, "Gi0"),
+            (27, "GigabitEthernet0"),
+            (
+                28,
+                "Cisco AP Software, ap3g3-k9w8 Version: 8.10.183.0\\nTechnical Support",
+            ),
+        ]);
+        let l2 = parse_tshark_line(&lldp).unwrap().l2.unwrap();
+        assert_eq!(
+            (l2.proto.as_str(), l2.port.as_deref()),
+            ("LLDP", Some("GigabitEthernet0"))
+        );
+        assert_eq!(
+            l2.platform.as_deref(),
+            Some("Cisco AP Software, ap3g3-k9w8 Version: 8.10.183.0")
+        );
+
+        let mdns = line(&[
+            (1, "192.168.0.108"),
+            (2, "224.0.0.251"),
+            (7, "eth:ethertype:ip:udp:mdns"),
+            (11, "5353"),
+            (12, "5353"),
+            (30, "LLLM.local;LLLM._ssh._tcp.local"),
+        ]);
+        assert_eq!(
+            parse_tshark_line(&mdns).unwrap().mdns_names,
+            vec!["LLLM.local", "LLLM._ssh._tcp.local"]
+        );
+
+        let dhcp = line(&[
+            (1, "192.168.0.131"),
+            (2, "192.168.0.1"),
+            (7, "eth:ethertype:ip:udp:dhcp"),
+            (31, "Pixel-Tablet"),
+        ]);
+        assert_eq!(
+            parse_tshark_line(&dhcp).unwrap().dhcp_hostname.as_deref(),
+            Some("Pixel-Tablet")
+        );
+    }
+
+    #[test]
+    fn test_separator_in_free_text_cannot_shift_fields() {
+        // A '|' in an HTTP Host / SNI must not move the MAC columns.
+        let l = line(&[
+            (1, "192.168.0.108"),
+            (2, "93.184.216.34"),
+            (7, "eth:ethertype:ip:tcp:http"),
+            (8, "300"),
+            (18, "a|b"),
+            (19, "68:24:99:1e:4d:47"),
+            (20, "32:01:02:44:1c:80"),
+            (INFO, "GET /"),
+        ]);
+        let p = parse_tshark_line(&l).unwrap();
+        assert_eq!(p.server_name.as_deref(), Some("a|b"));
+        assert_eq!(p.src_mac.as_deref(), Some("68:24:99:1e:4d:47"));
+        // Anything that is not a MAC address is ignored.
+        let bad = line(&[
+            (1, "192.168.0.108"),
+            (2, "8.8.8.8"),
+            (7, "eth:ip:udp"),
+            (8, "60"),
+            (19, "b"),
+        ]);
+        assert_eq!(parse_tshark_line(&bad).unwrap().src_mac, None);
+    }
+
+    #[test]
     fn test_parse_rejects_short_line() {
         assert!(parse_tshark_line("1.0|a|b|c").is_none());
     }
@@ -196,11 +297,13 @@ mod tests {
 
     #[test]
     fn test_build_capture_filter_excludes_ui_port() {
-        assert_eq!(build_capture_filter(None, 3000), "not tcp port 3000");
-        assert_eq!(build_capture_filter(Some("  "), 3000), "not tcp port 3000");
+        let any: std::net::SocketAddr = "0.0.0.0:3000".parse().unwrap();
+        let lan: std::net::SocketAddr = "192.168.0.1:8080".parse().unwrap();
+        assert_eq!(build_capture_filter(None, any), "not tcp port 3000");
+        assert_eq!(build_capture_filter(Some("  "), any), "not tcp port 3000");
         assert_eq!(
-            build_capture_filter(Some("udp or icmp"), 8080),
-            "(udp or icmp) and not tcp port 8080"
+            build_capture_filter(Some("udp or icmp"), lan),
+            "(udp or icmp) and not (host 192.168.0.1 and tcp port 8080)"
         );
     }
 

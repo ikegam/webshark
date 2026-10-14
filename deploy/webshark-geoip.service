@@ -1,8 +1,0 @@
-[Unit]
-Description=Update WebShark GeoIP database (DB-IP City Lite)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/webshark-geoip-update

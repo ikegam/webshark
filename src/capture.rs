@@ -11,24 +11,48 @@ use std::collections::HashMap;
 use crate::history::Classifier;
 use crate::names::ResolveSender;
 use crate::types::{Broadcaster, CaptureCommand, SharedFilter, SharedStats};
-use crate::utils::{get_lan_nets, get_local_ips, parse_tshark_line};
+use crate::utils::{AGGREGATOR, FIELD_SEPARATOR, parse_tshark_line};
+
+/// How long before a LAN address is handed to the name resolver again.
+const RESOLVE_AGAIN: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// When a per-host stats map reaches this many entries, prune it.
 const MAX_HOST_ENTRIES: usize = 4096;
 /// Number of heaviest hosts to keep after pruning.
 const KEEP_HOST_ENTRIES: usize = 1024;
 
-/// Port the web UI listens on (from WEBSHARK_BIND, default 3000).
-fn ui_port() -> u16 {
+/// Address the web UI listens on (WEBSHARK_BIND, default 127.0.0.1:3000).
+pub fn ui_bind() -> std::net::SocketAddr {
     std::env::var("WEBSHARK_BIND")
         .ok()
-        .and_then(|b| b.rsplit(':').next().and_then(|p| p.parse().ok()))
-        .unwrap_or(3000)
+        .and_then(|b| b.parse().ok())
+        .unwrap_or_else(|| std::net::SocketAddr::from(([127, 0, 0, 1], 3000)))
 }
 
-/// Combine the user's capture filter with an exclusion of the UI's own port.
-pub fn build_capture_filter(user: Option<&str>, port: u16) -> String {
-    let own = format!("not tcp port {}", port);
+/// Capture interface: WEBSHARK_IFACE, else the (first) LAN interface. The
+/// Linux "any" pseudo-interface would see every forwarded packet twice (on the
+/// LAN and on the WAN side), doubling all traffic figures.
+pub fn capture_iface() -> String {
+    std::env::var("WEBSHARK_IFACE")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            crate::netinfo::current()
+                .lan_nets
+                .first()
+                .map(|n| n.iface.clone())
+        })
+        .unwrap_or_else(|| "any".to_string())
+}
+
+/// Combine the user's capture filter with an exclusion of the UI's own
+/// traffic (only the UI's address and port when it is bound to one address).
+pub fn build_capture_filter(user: Option<&str>, bind: std::net::SocketAddr) -> String {
+    let own = if bind.ip().is_unspecified() {
+        format!("not tcp port {}", bind.port())
+    } else {
+        format!("not (host {} and tcp port {})", bind.ip(), bind.port())
+    };
     match user.map(str::trim).filter(|f| !f.is_empty()) {
         Some(f) => format!("({}) and {}", f, own),
         None => own,
@@ -109,9 +133,7 @@ async fn capture_packets(
 ) {
     info!("Starting packet capture");
 
-    // Capture interface is configurable via WEBSHARK_IFACE (default: all).
-    // On a router you may want e.g. WEBSHARK_IFACE=ppp0 or enp3s0.
-    let iface = std::env::var("WEBSHARK_IFACE").unwrap_or_else(|_| "any".to_string());
+    let iface = capture_iface();
     info!("Capturing on interface {}", iface);
 
     // Never capture our own web UI traffic: when capturing on the interface the
@@ -120,7 +142,7 @@ async fn capture_packets(
         let filter_guard = filter.lock().unwrap();
         filter_guard.tshark_filter.clone()
     };
-    let capture_filter = build_capture_filter(user_filter.as_deref(), ui_port());
+    let capture_filter = build_capture_filter(user_filter.as_deref(), ui_bind());
 
     // Capture with dumpcap writing pcapng to a pipe, and dissect with tshark
     // reading that pipe. Letting tshark drive dumpcap itself (`tshark -i`)
@@ -177,24 +199,39 @@ async fn capture_packets(
         "http.host",
         "eth.src",
         "eth.dst",
+        "cdp.deviceid",
+        "cdp.portid",
+        "cdp.platform",
+        "cdp.native_vlan",
+        "lldp.tlv.system.name",
+        "lldp.port.id",
+        "lldp.port.desc",
+        "lldp.tlv.system.desc",
+        "lldp.mgn.addr.ip4",
+        "dns.resp.name",
+        "dhcp.option.hostname",
         "_ws.col.Info",
     ] {
         args.push("-e".into());
         args.push(field.into());
     }
+    // Control characters as separators: tshark escapes non-printable bytes in
+    // field values, so free text (DNS names, SNI, HTTP Host) cannot contain
+    // them and shift the columns, as a '|' or ';' could.
+    args.extend([
+        "-E".to_string(),
+        format!("separator={}", FIELD_SEPARATOR),
+        "-E".to_string(),
+        format!("aggregator={}", AGGREGATOR),
+    ]);
     args.extend(
         [
             "-T",
             "fields",
-            "-E",
-            "separator=|",
-            // Keep every occurrence (DNS answers can carry many addresses) and
-            // join them with ';'. The parser takes the first value for
-            // single-valued fields, e.g. ICMP errors that quote an inner header.
+            // Keep every occurrence (DNS answers can carry many addresses).
+            // The parser takes the first value for single-valued fields.
             "-E",
             "occurrence=a",
-            "-E",
-            "aggregator=;",
             "-l", // Line buffering
             "-n", // No name resolution (avoids DNS lookups from the capture box)
             // Reset dissection state periodically. tshark otherwise keeps
@@ -232,13 +269,15 @@ async fn capture_packets(
     };
     let mut reader = BufReader::new(stdout).lines();
 
-    // Addresses can change (PPPoE reconnects, SLAAC), so rebuild the
-    // LAN/WAN classifier whenever capture (re)starts.
-    let lan_cidrs: Vec<String> = get_lan_nets().into_iter().map(|n| n.cidr).collect();
-    let classifier = Classifier::new(&lan_cidrs, &get_local_ips());
-    // LAN addresses already handed to the name resolver during this run.
-    let mut requested: std::collections::HashSet<std::net::Ipv4Addr> =
-        std::collections::HashSet::new();
+    // Addresses can change (PPPoE reconnects, a new delegated prefix), so the
+    // LAN/WAN classifier follows netinfo and is rebuilt when it changes.
+    let mut net = crate::netinfo::current();
+    let mut classifier = Classifier::new(&net.lan_cidrs(), &net.local_ips);
+    let mut net_check = tokio::time::interval(std::time::Duration::from_secs(10));
+    // LAN addresses handed to the name resolver, and when; re-sent after a
+    // while so devices that did not answer (or changed name) get another try.
+    let mut requested: HashMap<std::net::Ipv4Addr, std::time::Instant> = HashMap::new();
+    let own_macs = crate::lan::own_macs();
 
     // Both tools report errors (bad interface, permissions, ...) and status on
     // stderr. It must be drained: an unread pipe eventually fills and blocks
@@ -257,6 +296,17 @@ async fn capture_packets(
                                 stats.total_packets += 1;
                                 let dir = classifier.direction(&packet.src_ip, &packet.dst_ip);
                                 stats.history.add(packet.timestamp, dir, packet.length);
+                                stats.lan.observe(&packet, &classifier, &own_macs);
+                                // mDNS answers name the responder's own addresses.
+                                if packet.src_port == Some(5353) {
+                                    if let Some(name) = &packet.dns_name {
+                                        for addr in &packet.dns_addrs {
+                                            if classifier.is_lan_device(addr) && (stats.lan_names.len() < 4096 || stats.lan_names.contains_key(addr)) {
+                                                stats.lan_names.insert(addr.clone(), name.clone());
+                                            }
+                                        }
+                                    }
+                                }
                                 *stats.protocols.entry(packet.protocol.clone()).or_insert(0) += 1;
                                 *stats.top_sources.entry(packet.src_ip.clone()).or_insert(0) += 1;
                                 *stats.top_destinations.entry(packet.dst_ip.clone()).or_insert(0) += 1;
@@ -272,7 +322,12 @@ async fn capture_packets(
 
                             for addr in [&packet.src_ip, &packet.dst_ip] {
                                 if let Some(ip) = classifier.lan_device_v4(addr) {
-                                    if requested.len() < 4096 && requested.insert(ip) {
+                                    let due = requested.get(&ip).is_none_or(|t| t.elapsed() >= RESOLVE_AGAIN);
+                                    if due {
+                                        if requested.len() >= 4096 {
+                                            requested.retain(|_, t| t.elapsed() < RESOLVE_AGAIN);
+                                        }
+                                        requested.insert(ip, std::time::Instant::now());
                                         let _ = resolve_tx.send(ip);
                                     }
                                 }
@@ -291,6 +346,13 @@ async fn capture_packets(
                         error!("Error reading from tshark: {}", e);
                         break;
                     }
+                }
+            }
+            _ = net_check.tick() => {
+                let latest = crate::netinfo::current();
+                if latest.version != net.version {
+                    classifier = Classifier::new(&latest.lan_cidrs(), &latest.local_ips);
+                    net = latest;
                 }
             }
             _ = &mut abort_rx => {

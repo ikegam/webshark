@@ -1,0 +1,8 @@
+[Unit]
+Description=Update WebShark reference data (GeoIP, OUI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/webshark-data-update

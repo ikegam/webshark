@@ -28,6 +28,10 @@ pub async fn static_handler(Path(path): Path<String>) -> Response {
             include_str!("../static/js/app.js"),
             "text/javascript; charset=utf-8",
         ),
+        "js/lan.js" => (
+            include_str!("../static/js/lan.js"),
+            "text/javascript; charset=utf-8",
+        ),
         "js/geo.js" => (
             include_str!("../static/js/geo.js"),
             "text/javascript; charset=utf-8",
@@ -67,6 +71,25 @@ pub async fn geo_handler(
             })
             .collect(),
     )
+}
+
+/// LAN layout: this gateway's interfaces/routes/neighbours plus the device
+/// inventory learned from traffic.
+pub async fn lan_handler(
+    State((stats, _, _, _)): State<(SharedStats, SharedFilter, Broadcaster, CommandSender)>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let (inv, names) = stats
+        .lock()
+        .map(|s| (s.lan.clone(), s.lan_names.clone()))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0);
+    // Runs `ip` commands; keep it off the async workers.
+    tokio::task::spawn_blocking(move || Json(crate::lan::snapshot(&inv, &names, now)))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 pub async fn names_handler(
@@ -118,7 +141,7 @@ pub fn filter_compile_result(stdout: &str, stderr: &str) -> Result<(), String> {
 /// compiler's error message if the filter is invalid. If dumpcap cannot be run
 /// at all (e.g. not installed), the check is skipped.
 async fn compile_capture_filter(filter: &str) -> Result<(), String> {
-    let iface = std::env::var("WEBSHARK_IFACE").unwrap_or_else(|_| "any".to_string());
+    let iface = crate::capture::capture_iface();
     let child = tokio::process::Command::new("dumpcap")
         .args(["-i", &iface, "-f", filter, "-d"])
         .stdout(Stdio::piped())

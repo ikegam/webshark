@@ -1,0 +1,41 @@
+#!/bin/bash
+# Download the reference data WebShark uses:
+#   - DB-IP "IP to City Lite" (CC BY 4.0) for the map view
+#   - IEEE OUI registry (MAC address -> manufacturer) for the LAN view
+# Files are swapped in with an atomic rename; the running service picks them
+# up by itself (no restart needed).
+set -euo pipefail
+
+dir=/var/lib/webshark
+mkdir -p "$dir"
+status=0
+
+install_file() { # tmp dest label
+    chmod 0644 "$1"
+    mv -f "$1" "$2"
+    echo "Installed $3 ($(du -h "$2" | cut -f1))"
+}
+
+# --- GeoIP: the file for the new month may not be published yet ---
+tmp=$(mktemp "$dir/.dbip.XXXXXX")
+ok=
+for month in "$(date -u +%Y-%m)" "$(date -u -d "$(date -u +%Y-%m-15) -1 month" +%Y-%m)"; do
+    if curl -fsSL --retry 3 "https://download.db-ip.com/free/dbip-city-lite-$month.mmdb.gz" | gunzip > "$tmp" && [ -s "$tmp" ]; then
+        install_file "$tmp" "$dir/dbip-city-lite.mmdb" "dbip-city-lite-$month"
+        ok=1
+        break
+    fi
+done
+[ -n "$ok" ] || { echo "Failed to download the DB-IP database" >&2; rm -f "$tmp"; status=1; }
+
+# --- OUI registry ---
+tmp=$(mktemp "$dir/.oui.XXXXXX")
+if curl -fsSL --retry 3 https://standards-oui.ieee.org/oui/oui.csv -o "$tmp" && head -1 "$tmp" | grep -q '^Registry,Assignment'; then
+    install_file "$tmp" "$dir/oui.csv" "IEEE OUI registry"
+else
+    echo "Failed to download the IEEE OUI registry" >&2
+    rm -f "$tmp"
+    status=1
+fi
+
+exit $status

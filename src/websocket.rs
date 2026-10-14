@@ -15,7 +15,6 @@ use tracing::{error, warn};
 use crate::types::{
     Broadcaster, CommandSender, PROTOCOLS, PacketCompact, SharedFilter, SharedStats,
 };
-use crate::utils::{get_hostname, get_lan_nets, get_local_ips};
 
 /// Upper bound on packets buffered for one client between flushes. Anything
 /// beyond this is dropped (and reported) rather than growing memory.
@@ -77,19 +76,21 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster, stats: SharedStats) 
     let mut packet_buffer: Vec<PacketCompact> = Vec::new();
     let mut dropped: u64 = 0;
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(FLUSH_INTERVAL_MS));
+    let mut net_check = tokio::time::interval(std::time::Duration::from_secs(10));
 
-    let local_ips = get_local_ips();
+    // Cached network configuration: no processes are spawned per connection.
+    let mut net = crate::netinfo::current();
     let ctx = serde_json::json!({
         "type": "ctx",
         "protocols": PROTOCOLS,
-        "local_ips": local_ips,
-        "lan_nets": get_lan_nets(),
-        "hostname": get_hostname(),
+        "local_ips": net.local_ips,
+        "lan_nets": net.lan_nets,
+        "hostname": net.hostname,
         "history": history,
         "lan_names": lan_names,
         "geo": {
             "enabled": crate::geo::enabled(),
-            "home": crate::geo::home(&local_ips),
+            "home": crate::geo::home(&net.local_ips),
             "attribution": crate::geo::ATTRIBUTION,
             "attribution_url": crate::geo::ATTRIBUTION_URL
         }
@@ -117,6 +118,22 @@ async fn websocket_task(socket: WebSocket, tx: Broadcaster, stats: SharedStats) 
                             dropped += n;
                         }
                         Err(RecvError::Closed) => break,
+                    }
+                },
+                _ = net_check.tick() => {
+                    // Addresses changed (PPPoE reconnect, new IPv6 prefix): tell the client.
+                    let latest = crate::netinfo::current();
+                    if latest.version != net.version {
+                        net = latest;
+                        let msg = serde_json::json!({
+                            "type": "net",
+                            "local_ips": net.local_ips,
+                            "lan_nets": net.lan_nets,
+                            "hostname": net.hostname,
+                        });
+                        if sender.send(Message::Text(msg.to_string())).await.is_err() {
+                            break;
+                        }
                     }
                 },
                 _ = interval.tick() => {

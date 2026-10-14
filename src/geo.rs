@@ -9,7 +9,7 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use maxminddb::{Mmap, Reader, geoip2};
 use serde::Serialize;
@@ -18,7 +18,6 @@ use tracing::{info, warn};
 pub const ATTRIBUTION: &str = "IP Geolocation by DB-IP";
 pub const ATTRIBUTION_URL: &str = "https://db-ip.com";
 const DEFAULT_PATH: &str = "/var/lib/webshark/dbip-city-lite.mmdb";
-const RELOAD_CHECK: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GeoInfo {
@@ -74,14 +73,6 @@ pub fn reload_if_changed() {
             }
         }
         Err(e) => warn!("Failed to open GeoIP database {}: {}", path.display(), e),
-    }
-}
-
-/// Periodically pick up a replaced database file.
-pub async fn reload_task() {
-    loop {
-        tokio::time::sleep(RELOAD_CHECK).await;
-        tokio::task::spawn_blocking(reload_if_changed).await.ok();
     }
 }
 

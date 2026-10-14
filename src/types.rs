@@ -26,6 +26,13 @@ pub struct PacketInfo {
     /// Ethernet addresses (absent on the Linux "any" pseudo-interface).
     pub src_mac: Option<String>,
     pub dst_mac: Option<String>,
+    /// Record names in a DNS/mDNS response (used to learn advertised services).
+    #[serde(default)]
+    pub mdns_names: Vec<String>,
+    /// Client hostname from a DHCP request (option 12).
+    pub dhcp_hostname: Option<String>,
+    /// CDP/LLDP announcement carried by this frame.
+    pub l2: Option<crate::lan::L2Info>,
     pub length: u32,
     pub info: String,
 }
@@ -123,6 +130,9 @@ pub struct PacketStats {
     /// Hostnames resolved for LAN addresses (see names.rs).
     #[serde(skip)]
     pub lan_names: HashMap<String, String>,
+    /// What we know about devices on the LAN (see lan.rs).
+    #[serde(skip)]
+    pub lan: crate::lan::Inventory,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

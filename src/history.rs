@@ -8,9 +8,10 @@ use std::net::IpAddr;
 
 /// Seconds of history kept (matches the longest range in the UI).
 pub const HISTORY_SECONDS: i64 = 900;
-/// The newest seconds are not sent in the snapshot: packets from them may also
-/// arrive over the live stream right after connecting and be counted twice.
-const SNAPSHOT_HOLDBACK: i64 = 3;
+/// A packet this far behind the newest bucket means the clock was stepped
+/// back (e.g. NTP after boot); start the history over instead of dropping
+/// every packet until wall time catches up.
+const CLOCK_STEP_BACK: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -75,7 +76,11 @@ const BUILTIN_LOCAL: &[&str] = &[
 /// Decides whether an address is on our side of the gateway.
 #[derive(Debug, Clone, Default)]
 pub struct Classifier {
+    /// LAN networks plus private/link-local ranges: "on our side" for direction.
     nets: Vec<Net>,
+    /// Only the gateway's actual LAN networks (plus link-local): where LAN
+    /// devices live. Private ranges beyond the gateway (VPN, CGNAT) are not.
+    lan: Vec<Net>,
     self_ips: Vec<IpAddr>,
 }
 
@@ -87,8 +92,23 @@ impl Classifier {
             .chain(BUILTIN_LOCAL.iter().copied())
             .filter_map(Net::parse)
             .collect();
+        let mut lan: Vec<Net> = lan_cidrs.iter().filter_map(|c| Net::parse(c)).collect();
+        if lan.is_empty() {
+            // Not on a router (no LAN interfaces detected): fall back to private ranges.
+            lan = BUILTIN_LOCAL.iter().filter_map(|c| Net::parse(c)).collect();
+        } else {
+            lan.extend(
+                ["169.254.0.0/16", "fe80::/10"]
+                    .iter()
+                    .filter_map(|c| Net::parse(c)),
+            );
+        }
         let self_ips = self_ips.iter().filter_map(|s| s.parse().ok()).collect();
-        Classifier { nets, self_ips }
+        Classifier {
+            nets,
+            lan,
+            self_ips,
+        }
     }
 
     /// Anything that is not a routable remote address counts as local:
@@ -113,18 +133,29 @@ impl Classifier {
     /// i.e. something worth looking up a hostname for.
     pub fn lan_device_v4(&self, addr: &str) -> Option<std::net::Ipv4Addr> {
         let v4: std::net::Ipv4Addr = addr.parse().ok()?;
-        let ip = IpAddr::V4(v4);
-        if v4.is_unspecified() || v4.is_multicast() || v4.is_broadcast() || v4.is_loopback() {
-            return None;
+        self.is_lan_device(addr).then_some(v4)
+    }
+
+    /// A unicast address of some other machine on our side of the gateway
+    /// (IPv4 or IPv6; not us, not multicast/broadcast/unspecified).
+    pub fn is_lan_device(&self, addr: &str) -> bool {
+        let Ok(ip) = addr.split('%').next().unwrap_or("").parse::<IpAddr>() else {
+            return false;
+        };
+        if ip.is_unspecified()
+            || ip.is_multicast()
+            || ip.is_loopback()
+            || self.self_ips.contains(&ip)
+        {
+            return false;
         }
-        if self.self_ips.contains(&ip) || !self.nets.iter().any(|n| n.contains(&ip)) {
-            return None;
+        if let IpAddr::V4(v4) = ip {
+            // Limited and (for the usual /24) subnet broadcast.
+            if v4.is_broadcast() || v4.octets()[3] == 255 {
+                return false;
+            }
         }
-        // Skip the subnet broadcast address (e.g. 192.168.0.255).
-        if v4.octets()[3] == 255 {
-            return None;
-        }
-        Some(v4)
+        self.lan.iter().any(|n| n.contains(&ip))
     }
 
     pub fn direction(&self, src: &str, dst: &str) -> Direction {
@@ -153,6 +184,13 @@ pub struct History {
 impl History {
     pub fn add(&mut self, timestamp: f64, dir: Direction, bytes: u32) {
         let sec = timestamp.floor() as i64;
+        if self
+            .buckets
+            .back()
+            .is_some_and(|b| sec < b.sec - CLOCK_STEP_BACK)
+        {
+            self.buckets.clear();
+        }
         let newest = self.buckets.back().map(|b| b.sec);
         let bucket = match newest {
             Some(n) if sec > n => {
@@ -169,13 +207,21 @@ impl History {
                 });
                 self.buckets.back_mut()
             }
-            // Slightly out-of-order packet: find its (recent) bucket.
-            Some(_) => self
-                .buckets
-                .iter_mut()
-                .rev()
-                .take(10)
-                .find(|b| b.sec == sec),
+            // Slightly out-of-order packet: add to its bucket, creating it in
+            // order if that second had no packets yet.
+            Some(_) => {
+                let pos = self.buckets.partition_point(|b| b.sec < sec);
+                if self.buckets.get(pos).is_none_or(|b| b.sec != sec) {
+                    self.buckets.insert(
+                        pos,
+                        Bucket {
+                            sec,
+                            ..Default::default()
+                        },
+                    );
+                }
+                self.buckets.get_mut(pos)
+            }
         };
         if let Some(b) = bucket {
             let bytes = u64::from(bytes);
@@ -197,14 +243,11 @@ impl History {
     }
 
     /// `[sec, down_bytes, up_bytes, internal_bytes, packets]` per second,
-    /// oldest first, excluding the most recent seconds.
+    /// oldest first. Clients subscribe to the live stream before taking this
+    /// snapshot, so every packet is in exactly one of the two.
     pub fn snapshot(&self) -> Vec<[i64; 5]> {
-        let Some(newest) = self.buckets.back().map(|b| b.sec) else {
-            return Vec::new();
-        };
         self.buckets
             .iter()
-            .filter(|b| b.sec <= newest - SNAPSHOT_HOLDBACK)
             .map(|b| {
                 [
                     b.sec,
@@ -257,6 +300,11 @@ mod tests {
         assert_eq!(c.lan_device_v4("224.0.0.251"), None);
         assert_eq!(c.lan_device_v4("8.8.8.8"), None);
         assert_eq!(c.lan_device_v4("fe80::1"), None);
+        // Private, but beyond the gateway (VPN / CGNAT): not a LAN device.
+        assert!(!c.is_lan_device("10.8.0.5"));
+        assert!(!c.is_lan_device("100.64.1.1"));
+        assert!(c.is_lan_device("fe80::1234"));
+        assert!(c.is_local("10.8.0.5")); // still "our side" for direction
     }
 
     #[test]
@@ -274,14 +322,29 @@ mod tests {
     }
 
     #[test]
-    fn history_buckets_trims_and_holds_back() {
+    fn history_buckets_ordering_and_trimming() {
         let mut h = History::default();
         h.add(100.2, Direction::Down, 1000);
         h.add(100.9, Direction::Up, 10);
         h.add(101.0, Direction::Internal, 5);
         h.add(100.5, Direction::Down, 1); // out of order
         h.add(104.0, Direction::Down, 7);
-        assert_eq!(h.snapshot(), vec![[100, 1001, 10, 0, 3], [101, 0, 0, 5, 1]]);
+        h.add(102.5, Direction::Up, 3); // late packet for a second with no bucket yet
+        assert_eq!(
+            h.snapshot(),
+            vec![
+                [100, 1001, 10, 0, 3],
+                [101, 0, 0, 5, 1],
+                [102, 0, 3, 0, 1],
+                [104, 7, 0, 0, 1]
+            ]
+        );
+
+        // Clock stepped back far: start over rather than drop everything.
+        let mut h2 = History::default();
+        h2.add(10_000.0, Direction::Down, 1);
+        h2.add(9_000.0, Direction::Down, 2);
+        assert_eq!(h2.snapshot(), vec![[9_000, 2, 0, 0, 1]]);
 
         h.add(100.0 + HISTORY_SECONDS as f64 + 1.0, Direction::Down, 1);
         assert!(h.snapshot().iter().all(|b| b[0] > 100));

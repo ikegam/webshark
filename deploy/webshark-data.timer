@@ -1,5 +1,5 @@
 [Unit]
-Description=Monthly update of the WebShark GeoIP database
+Description=Monthly update of WebShark reference data
 
 [Timer]
 OnCalendar=*-*-03 04:00

@@ -36,7 +36,7 @@
 make build            # static binary: target/x86_64-unknown-linux-musl/release/webshark
 make test
 
-WEBSHARK_BIND=127.0.0.1:3000 WEBSHARK_IFACE=any ./target/x86_64-unknown-linux-musl/release/webshark
+WEBSHARK_BIND=127.0.0.1:3000 WEBSHARK_IFACE=eth0 ./target/x86_64-unknown-linux-musl/release/webshark
 ```
 
 Open `http://<WEBSHARK_BIND>/` in a browser.
@@ -45,8 +45,9 @@ Open `http://<WEBSHARK_BIND>/` in a browser.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `WEBSHARK_BIND` | `127.0.0.1:3000` | Address the web UI listens on. On a gateway use the **LAN** address, never `0.0.0.0`. |
-| `WEBSHARK_IFACE` | `any` | Capture interface. On a router, the LAN interface shows per-device traffic before NAT. |
+| `WEBSHARK_BIND` | `127.0.0.1:3000` | Address (`IP:port`) the web UI listens on. On a gateway use the **LAN** address, never `0.0.0.0`. |
+| `WEBSHARK_IFACE` | first LAN interface | Capture interface. The LAN interface shows per-device traffic before NAT. Avoid `any` on a router: forwarded packets are seen twice (LAN and WAN side), doubling all figures. |
+| `WEBSHARK_ALLOWED_HOSTS` | – | Extra host names the UI may be reached by (comma separated). Requests with any other `Host` header are rejected (DNS-rebinding protection); the bind address, the machine's hostname (`.local` too) and `localhost` are always allowed. |
 | `RUST_LOG` | – | Log level (`info`, `debug`, …). |
 
 The UI's own port is always excluded from capture.
@@ -56,6 +57,7 @@ The UI's own port is always excluded from capture.
 ```bash
 make deploy                                   # defaults: HOST=192.168.0.1 IFACE=enp3s0 LAN_IFACE=enp3s0
 make deploy HOST=10.0.0.1 IFACE=eth1 LAN_IFACE=eth1
+make data                                     # GeoIP + MAC vendor data (also refreshed monthly)
 make status | make logs | make undeploy
 ```
 
@@ -91,7 +93,8 @@ These are not bundled in the repository; they are loaded or downloaded at run ti
 
 | Component | Used for | License |
 |---|---|---|
-| [DB-IP IP to City Lite](https://db-ip.com/db/download/ip-to-city-lite) | GeoIP map (downloaded by `make geoip`) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — "IP Geolocation by DB-IP" is shown on the map |
+| [DB-IP IP to City Lite](https://db-ip.com/db/download/ip-to-city-lite) | GeoIP map (downloaded by `make data`) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — "IP Geolocation by DB-IP" is shown on the map |
+| [IEEE OUI registry](https://standards-oui.ieee.org/) | MAC address manufacturers in the LAN view (downloaded by `make data`) | IEEE public listing |
 | [world-atlas](https://github.com/topojson/world-atlas) / [Natural Earth](https://www.naturalearthdata.com/) | Map outlines | ISC / public domain |
 | [Chart.js](https://www.chartjs.org/) | Charts | MIT |
 | [D3](https://d3js.org/), [topojson-client](https://github.com/topojson/topojson-client) | Graph, map | ISC |

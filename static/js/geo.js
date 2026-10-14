@@ -246,17 +246,17 @@ function geoAggregate(now) {
         geoQueue(ip);
         const g = GEO.cache.get(ip);
         if (!g) continue;
-        const bytes = flowWindowBytes(f, nowSec, GRAPH_WINDOW);
-        if (!bytes) continue;
-        const recent = flowWindowBytes(f, nowSec, 5) / 5;
-        const downShare = f.up + f.down ? f.down / (f.up + f.down) : 0.5;
+        const win = flowWindow(f, nowSec, GRAPH_WINDOW);
+        if (!win.total) continue;
+        const recent = flowWindow(f, nowSec, 5);
         const key = `${g.lat.toFixed(1)},${g.lon.toFixed(1)}`;
         let l = locs.get(key);
         if (!l) { l = { key, lat: g.lat, lon: g.lon, cc: g.cc, country: g.country, city: g.city, down: 0, up: 0, rateDown: 0, rateUp: 0, hosts: new Map() }; locs.set(key, l); }
-        l.down += bytes * downShare; l.up += bytes * (1 - downShare);
-        l.rateDown += recent * downShare; l.rateUp += recent * (1 - downShare);
+        // Directions from the window itself, not the flow's lifetime ratio.
+        l.down += win.down; l.up += win.up;
+        l.rateDown += recent.down / 5; l.rateUp += recent.up / 5;
         const name = f.name || S.names.get(ip) || ip;
-        l.hosts.set(name, (l.hosts.get(name) || 0) + bytes);
+        l.hosts.set(name, (l.hosts.get(name) || 0) + win.total);
     }
     return [...locs.values()].sort((a, b) => (b.down + b.up) - (a.down + a.up));
 }

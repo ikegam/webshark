@@ -103,10 +103,15 @@ pub fn get_lan_nets() -> Vec<LanNet> {
 
 /// Separator tshark uses between multiple occurrences of one field
 /// (`-E aggregator=;`). Must match capture.rs.
-pub const AGGREGATOR: char = ';';
+pub const AGGREGATOR: char = '\x1e';
+
+/// Separator between fields (`-E separator=`). Must match capture.rs. A control
+/// character, because tshark escapes those inside values, so free-text fields
+/// (DNS names, SNI, HTTP Host) can never contain it and shift the columns.
+pub const FIELD_SEPARATOR: char = '\x1f';
 
 /// First occurrence of a possibly multi-valued field. ICMP errors, for example,
-/// quote the offending packet, so `ip.src` can be "outer;inner".
+/// quote the offending packet, so `ip.src` can be "outer<AGG>inner".
 fn first_value(field: &str) -> &str {
     field.split(AGGREGATOR).next().unwrap_or("").trim()
 }
@@ -161,6 +166,29 @@ fn parse_protocols(hierarchy: &str) -> (String, Option<String>) {
 
 /// Protocol layers of a packet. Layers after ICMP/ICMPv6 belong to the packet
 /// quoted inside an ICMP error, not to this packet, so they are dropped.
+/// True for an ICMP/ICMPv6 message that quotes another packet (layers follow it).
+fn quotes_inner_packet(hierarchy: &str) -> bool {
+    let layers: Vec<&str> = hierarchy.split(':').collect();
+    layers
+        .iter()
+        .position(|l| *l == "icmp" || *l == "icmpv6")
+        .is_some_and(|i| i + 1 < layers.len())
+}
+
+/// Lower-case "aa:bb:cc:dd:ee:ff", or None if the field is not a MAC address.
+fn parse_mac(field: &str) -> Option<String> {
+    let v = first_value(field);
+    let ok = v.len() == 17
+        && v.char_indices().all(|(i, c)| {
+            if i % 3 == 2 {
+                c == ':'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        });
+    ok.then(|| v.to_ascii_lowercase())
+}
+
 fn effective_layers(hierarchy: &str) -> Vec<&str> {
     let layers: Vec<&str> = hierarchy.split(':').collect();
     match layers.iter().position(|l| *l == "icmp" || *l == "icmpv6") {
@@ -199,10 +227,43 @@ fn parse_flags(field: &str) -> Option<u16> {
 
 /// Number of `|`-separated fields tshark emits; must match the `-e` list in
 /// capture.rs. `_ws.col.Info` is last so a `|` inside it cannot shift fields.
-pub const FIELD_COUNT: usize = 22;
+pub const FIELD_COUNT: usize = 33;
+
+/// First line of a field tshark printed with escaped newlines ("a\\nb").
+fn first_line(v: Option<String>) -> Option<String> {
+    v.and_then(|s| s.split("\\n").next().map(|l| l.trim().to_string()))
+        .filter(|s| !s.is_empty())
+}
+
+/// CDP / LLDP fields: cdp.deviceid, cdp.portid, cdp.platform, cdp.native_vlan,
+/// lldp.system.name, lldp.port.id, lldp.port.desc, lldp.system.desc, lldp.mgn.addr.ip4
+fn parse_l2(f: &[&str]) -> Option<crate::lan::L2Info> {
+    let v = |i: usize| f.get(i).and_then(|s| opt_value(s));
+    if let Some(name) = v(0) {
+        return Some(crate::lan::L2Info {
+            proto: "CDP".into(),
+            name: Some(name),
+            port: v(1),
+            platform: first_line(v(2)),
+            vlan: v(3),
+            mgmt: None,
+        });
+    }
+    if v(4).is_some() || v(5).is_some() {
+        return Some(crate::lan::L2Info {
+            proto: "LLDP".into(),
+            name: v(4),
+            port: v(6).or_else(|| v(5)),
+            platform: first_line(v(7)),
+            vlan: None,
+            mgmt: v(8),
+        });
+    }
+    None
+}
 
 pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
-    let parts: Vec<&str> = line.splitn(FIELD_COUNT, '|').collect();
+    let parts: Vec<&str> = line.splitn(FIELD_COUNT, FIELD_SEPARATOR).collect();
     if parts.len() < FIELD_COUNT {
         return None;
     }
@@ -215,12 +276,19 @@ pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     let (protocol, sub_protocol) = parse_protocols(parts[7]);
     let app = parse_app(parts[7]);
     let length = parts[8].parse::<u32>().unwrap_or(0);
-    let src_port = parse_port(parts[9]).or_else(|| parse_port(parts[11]));
-    let dst_port = parse_port(parts[10]).or_else(|| parse_port(parts[12]));
-    let tcp_flags = parse_flags(parts[13]);
-    let dns_addrs: Vec<String> = parts[15]
+    // In an ICMP error the transport/DNS fields belong to the quoted packet
+    // (and its direction is reversed), not to this one.
+    let icmp_error = quotes_inner_packet(parts[7]);
+    let src_port = (!icmp_error)
+        .then(|| parse_port(parts[9]).or_else(|| parse_port(parts[11])))
+        .flatten();
+    let dst_port = (!icmp_error)
+        .then(|| parse_port(parts[10]).or_else(|| parse_port(parts[12])))
+        .flatten();
+    let tcp_flags = (!icmp_error).then(|| parse_flags(parts[13])).flatten();
+    let dns_addrs: Vec<String> = if icmp_error { "" } else { parts[15] }
         .split(AGGREGATOR)
-        .chain(parts[16].split(AGGREGATOR))
+        .chain(if icmp_error { "" } else { parts[16] }.split(AGGREGATOR))
         .map(str::trim)
         .filter(|a| !a.is_empty())
         .map(str::to_string)
@@ -230,13 +298,24 @@ pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
     } else {
         opt_value(parts[14])
     };
-    let server_name = opt_value(parts[17]).or_else(|| opt_value(parts[18]));
-    let src_mac = opt_value(parts[19]);
-    let dst_mac = opt_value(parts[20]);
-    let info = if parts[21].is_empty() {
+    let server_name = (!icmp_error)
+        .then(|| opt_value(parts[17]).or_else(|| opt_value(parts[18])))
+        .flatten();
+    let src_mac = parse_mac(parts[19]);
+    let dst_mac = parse_mac(parts[20]);
+    let l2 = parse_l2(&parts[21..30]);
+    let mdns_names: Vec<String> = parts[30]
+        .split(AGGREGATOR)
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+        .take(64)
+        .map(str::to_string)
+        .collect();
+    let dhcp_hostname = opt_value(parts[31]);
+    let info = if parts[32].is_empty() {
         "Unknown".to_string()
     } else {
-        parts[21].to_string()
+        parts[32].to_string()
     };
 
     Some(PacketInfo {
@@ -254,6 +333,9 @@ pub fn parse_tshark_line(line: &str) -> Option<PacketInfo> {
         server_name,
         src_mac,
         dst_mac,
+        mdns_names,
+        dhcp_hostname,
+        l2,
         length,
         info,
     })

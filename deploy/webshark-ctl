@@ -1,0 +1,67 @@
+#!/bin/bash
+# webshark-ctl: run webshark only for a debugging session.
+#
+#   sudo webshark-ctl start [DURATION]   open the UI port on the LAN and start;
+#                                        stops by itself after DURATION (default 2h)
+#   sudo webshark-ctl stop               stop now and close the UI port
+#   webshark-ctl status
+#
+# webshark is not enabled at boot. Captured data lives only in memory and is
+# gone once it stops.
+set -euo pipefail
+
+CONF=/etc/default/webshark
+[ -r "$CONF" ] && . "$CONF"
+bind=${WEBSHARK_BIND:-127.0.0.1:3000}
+port=${bind##*:}
+ui_iface=${WEBSHARK_UI_IFACE:-}
+self=$(readlink -f "$0")
+
+need_root() { [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }; }
+
+firewall() { # allow|delete
+    command -v ufw >/dev/null || return 0
+    [ -n "$ui_iface" ] || { echo "WEBSHARK_UI_IFACE not set in $CONF; leaving the firewall alone" >&2; return 0; }
+    if [ "$1" = allow ]; then
+        ufw allow in on "$ui_iface" to any port "$port" proto tcp comment webshark >/dev/null
+    else
+        ufw delete allow in on "$ui_iface" to any port "$port" proto tcp >/dev/null 2>&1 || true
+    fi
+}
+
+cancel_autostop() {
+    systemctl stop webshark-autostop.timer >/dev/null 2>&1 || true
+    systemctl reset-failed webshark-autostop.service webshark-autostop.timer >/dev/null 2>&1 || true
+}
+
+case "${1:-status}" in
+start)
+    need_root
+    duration=${2:-2h}
+    [[ "$duration" =~ ^[0-9]+(s|min|m|h|d)?$ ]] || { echo "bad duration: $duration (e.g. 30min, 2h)" >&2; exit 1; }
+    firewall allow
+    systemctl start webshark
+    cancel_autostop
+    systemd-run --quiet --unit webshark-autostop --on-active="$duration" "$self" stop
+    echo "webshark started: http://$bind/ (stops automatically in $duration; 'sudo webshark-ctl stop' to stop now)"
+    ;;
+stop)
+    need_root
+    cancel_autostop
+    systemctl stop webshark
+    firewall delete
+    echo "webshark stopped"
+    ;;
+status)
+    if systemctl is-active --quiet webshark; then
+        left=$(systemctl list-timers webshark-autostop.timer --no-pager --no-legend 2>/dev/null | awk '{print $1, $2, $3}')
+        echo "running: http://$bind/${left:+ (auto stop at $left)}"
+    else
+        echo "stopped"
+    fi
+    ;;
+*)
+    echo "usage: webshark-ctl start [DURATION] | stop | status" >&2
+    exit 2
+    ;;
+esac

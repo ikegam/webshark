@@ -54,20 +54,31 @@ The UI's own port is always excluded from capture.
 
 ## Deploy to a gateway (systemd)
 
+webshark is meant to be run **only while debugging**, not as an always-on
+monitor: `make deploy` installs it but does not enable or start it.
+
 ```bash
 make deploy                                   # defaults: HOST=192.168.0.1 IFACE=enp3s0 LAN_IFACE=enp3s0
-make deploy HOST=10.0.0.1 IFACE=eth1 LAN_IFACE=eth1
-make data                                     # GeoIP + MAC vendor data (also refreshed monthly)
-make status | make logs | make undeploy
+make start                                    # start a debugging session (stops by itself after 2 h)
+make start DURATION=30min
+make stop                                     # stop now
+make status | make logs | make data | make undeploy
 ```
 
-`make deploy` runs the tests, builds the static binary, copies it over SSH and installs
-`webshark.service` running as an unprivileged `webshark` user (member of `wireshark`),
-writes `/etc/default/webshark`, and opens the port with ufw **on the LAN interface only**.
+On the gateway itself the same is available as `sudo webshark-ctl start [DURATION]`,
+`sudo webshark-ctl stop` and `webshark-ctl status`.
 
-Resource use is bounded for 24/7 operation: packets are piped from dumpcap to tshark (no
-capture files on disk), tshark's dissection state is reset periodically, all in-memory tables
-are capped, and the service has `MemoryMax=512M`.
+- `make deploy` runs the tests, builds the static binary, copies it over SSH and installs
+  `webshark.service` (unprivileged `webshark` user in the `wireshark` group, not enabled at
+  boot), `/etc/default/webshark`, `webshark-ctl`, and the monthly data update timer.
+  If a session is running, it is restarted with the new build.
+- `webshark-ctl start` opens the UI port with ufw **on the LAN interface only** and arms a
+  transient systemd timer that stops webshark after `DURATION`; `stop` closes the port again.
+- Captured data is kept in memory only and is discarded when webshark stops.
+
+Resource use is bounded: packets are piped from dumpcap to tshark (no capture files on
+disk), tshark's dissection state is reset periodically, all in-memory tables are capped,
+and the service has `MemoryMax=512M`.
 
 ## Development
 
